@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "iperf_config.h": "c"
+    },
+    "esbonio.server.enabled": true
+}
