@@ -1,4 +1,4 @@
-use color_eyre::Report;
+use color_eyre::{eyre::eyre, Report};
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
@@ -38,12 +38,11 @@ fn main() -> Result<(), Report> {
     // test.set_test_reporter_interval(1.);
     // test.set_test_stats_interval(1.);
 
-    let output = test.run_client()?;
+    // Only keep the ending stats around
+    let TestResults { end, .. } = test.run_client()?;
 
-    info!(
-        "Speed test done, output is {:#?}",
-        serde_json::to_string(&output)?
-    );
+    let iperf::IperfEndStream::udp { lost_percent, .. } = end.streams[0];
+    info!("Speed test done, upstream packet loss is {lost_percent}%");
     Ok(())
 }
 
