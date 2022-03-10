@@ -43,7 +43,8 @@ fn main() -> Result<(), Report> {
 
     let iperf::IperfEndStream::udp { lost_percent, .. } = end.streams[0];
     info!("Speed test done, upstream packet loss is {lost_percent}%");
-    Ok(())
+
+    todo!("Send that figure up to timescaledb")
 }
 
 fn setup() -> Result<(), Report> {
