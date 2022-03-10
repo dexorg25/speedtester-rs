@@ -3,6 +3,7 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
+use color_eyre::{eyre::eyre, Report};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -60,30 +61,25 @@ pub struct IperfTest {
     inner: *mut bindings::iperf_test,
 }
 
-impl Default for IperfTest {
-    fn default() -> Self {
-        let test = Self::new();
-
-        unsafe {
-            bindings::iperf_defaults(test.inner);
-        }
-
-        test
-    }
-}
-
 impl IperfTest {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, Report> {
         unsafe {
             let test = bindings::iperf_new_test();
-            assert!(!test.is_null());
-            Self { inner: test }
+            if !test.is_null() {
+                // Set defaults
+                bindings::iperf_defaults(test);
+                Ok(Self { inner: test })
+            } else {
+                Err(eyre!("Failed to allocate Iperf Client"))
+            }
         }
     }
 
     /// Use this to configure the test client as if you called it from the command line
-    pub fn new_from_arguments(args: std::env::Args) -> Self {
-        let test = Self::default();
+    ///
+    /// This function hardcodes json output formatting
+    pub fn new_from_arguments(args: std::env::Args) -> Result<Self, Report> {
+        let test = Self::new()?;
 
         // Construct a temporary array of CStrings
         let mut arg_buffer: Vec<CString> = args.map(|a| CString::new(a).unwrap()).collect();
@@ -101,9 +97,12 @@ impl IperfTest {
             )
         };
 
-        assert!(ret == 0);
-
-        test
+        if ret == 0 {
+            test.set_json_output(true);
+            Ok(test)
+        } else {
+            Err(eyre!("Bad arguments passed to iperf"))
+        }
     }
 
     pub fn set_verbose(&mut self, v: bool) {
@@ -176,24 +175,24 @@ impl IperfTest {
         }
     }
 
-    pub fn run_client(&mut self) -> Result<(), IperfError> {
+    /// Run the client, and attempt to parse the results
+    pub fn run_client(&mut self) -> Result<TestResults, Report> {
         let res = unsafe { bindings::iperf_run_client(self.inner) };
 
         if res < 0 {
-            Err(IperfError { value: res })
+            Err(Report::new(IperfError { value: res }))
         } else {
-            Ok(())
+            let res = serde_json::from_str(&self.get_json_output_string()?)?;
+            Ok(res)
         }
     }
 
-    pub fn get_json_output_string(&self) -> Result<String, IperfStringError> {
+    pub fn get_json_output_string(&self) -> Result<String, Report> {
         unsafe {
             let output = bindings::iperf_get_test_json_output_string(self.inner);
 
             if output.is_null() {
-                Err(IperfStringError {
-                    message: "Error getting JSON output",
-                })
+                Err(eyre!("Error retreiving JSON output"))
             } else {
                 Ok(CStr::from_ptr(output).to_string_lossy().to_string())
             }
@@ -210,17 +209,6 @@ impl Drop for IperfTest {
         unsafe {
             bindings::iperf_free_test(self.inner);
         }
-    }
-}
-
-#[derive(Error, Debug)]
-pub struct IperfStringError {
-    message: &'static str,
-}
-
-impl fmt::Display for IperfStringError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.message)
     }
 }
 
