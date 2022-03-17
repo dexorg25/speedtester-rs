@@ -75,15 +75,16 @@ impl IperfTest {
     /// Use this to configure the test client as if you called it from the command line
     ///
     /// This function hardcodes json output formatting
-    pub fn new_from_arguments<T, U>(args: T) -> Result<Self, Report> 
-    where 
-    T: IntoIterator<Item = U>,
-    U: Into<Vec<u8>>
+    pub fn new_from_arguments<T, U>(args: T) -> Result<Self, Report>
+    where
+        T: IntoIterator<Item = U>,
+        U: Into<Vec<u8>>,
     {
         let test = Self::new()?;
 
         // Construct a temporary array of CStrings
-        let mut arg_buffer: Vec<CString> = args.into_iter().map(|a| CString::new(a).unwrap()).collect();
+        let mut arg_buffer: Vec<CString> =
+            args.into_iter().map(|a| CString::new(a).unwrap()).collect();
 
         let mut argv: Vec<*mut i8> = arg_buffer
             .iter_mut()
