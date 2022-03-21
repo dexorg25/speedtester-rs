@@ -1,0 +1,12 @@
+[Unit]
+Description=Hit a speedtest server in linode to call RCN out on their BS
+After=network.target
+
+[Service]
+Type=exec
+User=derek
+ExecStart=/home/derek/.cargo/bin/speedtester-rs
+EnvironmentFile=/home/derek/repos/speedtester-rs/.env
+
+[Install]
+WantedBy=multi-user.target
