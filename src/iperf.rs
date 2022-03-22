@@ -72,9 +72,9 @@ impl IperfTest {
         }
     }
 
-    /// Use this to configure the test client as if you called it from the command line
+    /// Use this to configure the test client as if called from the command line
     ///
-    /// This function hardcodes json output formatting
+    /// This function also overrides json output formatting to true
     pub fn new_from_arguments<T, U>(args: T) -> Result<Self, Report>
     where
         T: IntoIterator<Item = U>,
@@ -138,7 +138,7 @@ impl IperfTest {
         }
     }
 
-    /// Set fully hostname (or IP?) of server
+    /// Set hostname (or IP?) of server
     pub fn set_test_server_hostname(&mut self, host: &str) {
         unsafe {
             let host = std::ffi::CString::new(host).unwrap();
