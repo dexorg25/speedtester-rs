@@ -1,20 +1,21 @@
 use autotools::Config;
-use color_eyre::Report;
 
-fn main() -> Result<(), Report> {
-    color_eyre::install()?;
+fn main() {
     // Compile iperf as a static lib, could probably pass some parameters to prune this
-    let dst = Config::new("extern/iperf")
-        .disable_shared()
+    let mut cfg = Config::new("extern/iperf");
+    cfg.disable_shared()
         .enable_static()
         .config_option("with-ssl", None)
-        .build();
+        .fast_build(true);
+
+    let dst = cfg.build();
 
     // Explicitly search library directory
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
 
-    // Add static library to link list
+    // Add iperf library to lib target
     println!("cargo:rustc-link-lib=static=iperf");
 
-    Ok(())
+    // dependence on openssl libcrypto
+    println!("cargo:rustc-link-lib=dylib=crypto");
 }
