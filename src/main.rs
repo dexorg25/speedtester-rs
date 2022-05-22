@@ -1,14 +1,11 @@
-use color_eyre::{eyre::eyre, Report};
+use color_eyre::Report;
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
 
 use tracing::{error, info, warn};
 
-mod iperf;
-use iperf::IperfTest;
-
-use crate::iperf::TestResults;
+use speedtester_rs::{IperfTest, IperfEndStream};
 
 use postgres::{types::Type, Client, NoTls};
 
@@ -112,7 +109,7 @@ fn main() -> Result<(), Report> {
                 let end = &results.end;
 
                 // Perform the test and print the result
-                let iperf::IperfEndStream::udp { lost_percent, .. } = &end.streams[0];
+                let IperfEndStream::udp { lost_percent, .. } = &end.streams[0];
                 info!("Speed test done, upstream packet loss is {lost_percent}%");
 
                 // Send the result to a database (this will panic if the client is disconnected? that may not be a problem)
