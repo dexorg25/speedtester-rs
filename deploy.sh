@@ -1,14 +1,21 @@
 #!/bin/bash
 
 SERVER="falcon"
-BUILD_PATH="/tmp/speedtester-rs"
 
 # copy the folder to the server
 echo "Pushing folder to server"
-ssh $SERVER rm $BUILD_PATH
-scp -r . $SERVER:$BUILD_PATH
+cargo clean -q
+TMP="$(ssh $SERVER mktemp -d)"
+
+echo "Building in '$TMP'"
+
+scp -r . $SERVER:"$TMP"
 
 # build and install the program
-ssh $SERVER cargo install --path BUILD_PATH
+ssh $SERVER cargo install --path "$TMP"
 
 # restart the service
+ssh $SERVER sudo systemctl restart speedtester-rs
+
+# Cleanup
+ssh $SERVER rm -r "$TMP"
