@@ -16,7 +16,7 @@ struct Config {
     #[clap(short, default_value = "1", env = "INTERVAL")]
     interval: f32,
 
-    /// Database address
+    /// Database name
     #[clap(env = "DBNAME")]
     database: String,
 
@@ -34,20 +34,27 @@ struct Config {
 
     /// Database port
     #[clap(default_value = "5432", env = "DBPORT")]
-    dbport: u32,
+    dbport: u16,
 }
 
-fn connect_db(host: &str, user: &str, pass: &str) -> Result<postgres::Client, postgres::Error> {
+fn connect_db(
+    host: &str,
+    port: u16,
+    database: &str,
+    user: &str,
+    pass: &str,
+) -> Result<postgres::Client, postgres::Error> {
     let mut ret = postgres::Config::new()
         .application_name("speedtester-rs")
         .host(host)
+        .port(port)
         .user(user)
         .password(pass)
-        .dbname("misc_stats")
+        .dbname(database)
         .connect_timeout(Duration::from_secs(60))
         .connect(postgres::NoTls)?;
 
-    info!("Connected to database at {host}!");
+    info!("Connected to database {database} at {user}@{host}!");
 
     // Make the tables if not there
     ret.batch_execute(
@@ -87,7 +94,13 @@ fn main() -> Result<(), Report> {
     // DB connect retry loop
     loop {
         // On successful connect, reset retry counter, else decrement
-        match connect_db(&args.dbhost, &args.dbuser, &args.dbpass) {
+        match connect_db(
+            &args.dbhost,
+            args.dbport,
+            &args.database,
+            &args.dbuser,
+            &args.dbpass,
+        ) {
             Ok(mut client) => {
                 db_retry_counter = 0;
 
