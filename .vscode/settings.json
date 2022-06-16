@@ -1,6 +1,18 @@
 {
     "files.associations": {
-        "iperf_config.h": "c"
+        "Doxyfile": "plaintext",
+        "iperf_config.h": "c",
+        "netdb.h": "c",
+        "inet.h": "c",
+        "stdio.h": "c"
     },
-    "esbonio.server.enabled": true
+    "esbonio.server.enabled": true,
+    "makefile.configurations": [
+        {
+            "makeDirectory": "extern/iperf",
+            "name": "default",
+        }
+    ],
+    "makefile.preConfigureScript": "extern/iperf/configure_for_vscode.sh",
+    "makefile.makeDirectory": "extern/iperf",
 }

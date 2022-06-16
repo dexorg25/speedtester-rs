@@ -20,7 +20,10 @@
 		"mutantdino.resourcemonitor",
 		"matklad.rust-analyzer",
 		"tamasfe.even-better-toml",
-		"serayuzgur.crates"
+		"serayuzgur.crates",
+		"ckolkman.vscode-postgres",
+		"ms-vscode.makefile-tools",
+		"ms-vscode.cpptools-extension-pack"
 	],
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [5432],
