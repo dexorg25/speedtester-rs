@@ -17,24 +17,32 @@ struct Config {
     interval: f32,
 
     /// Database name
-    #[clap(env = "DBNAME")]
+    #[clap(env = "POSTGRES_DB")]
     database: String,
 
     /// Database Host  
-    #[clap(env = "DBHOST")]
+    #[clap(env = "POSTGRES_HOSTNAME")]
     dbhost: String,
 
     /// Database User
-    #[clap(env = "DBUSER")]
+    #[clap(env = "POSTGRES_USER")]
     dbuser: String,
 
+    /// Iperf3 server host
+    #[clap(env = "IPERF_HOST")]
+    iperf_host: String,
+
     /// Database password
-    #[clap(default_value = "", env = "DBPASS")]
+    #[clap(default_value = "", env = "POSTGRES_PASSWORD")]
     dbpass: String,
 
     /// Database port
-    #[clap(default_value = "5432", env = "DBPORT")]
+    #[clap(default_value = "5432", env = "POSTGRES_PORT")]
     dbport: u16,
+
+    /// Iperf3 server port
+    #[clap(default_value = "5201", env = "IPERF_PORT")]
+    iperf_port: u16,
 }
 
 fn connect_db(
@@ -119,7 +127,9 @@ fn main() -> Result<(), Report> {
                             let mut test = IperfTest::new_from_arguments([
                                 &std::env::args().next().unwrap(),
                                 "-c",
-                                "box.witt.me",
+                                &args.iperf_host,
+                                "-p",
+                                &args.iperf_port.to_string(),
                                 "-u",
                                 "--logfile",
                                 "/dev/null",
