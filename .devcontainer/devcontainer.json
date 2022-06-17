@@ -34,7 +34,6 @@
 	"runServices": [
 		"app",
 		"db",
-		"iperf_server",
-		"frontend"
+		"iperf_server"
 	]
 }
