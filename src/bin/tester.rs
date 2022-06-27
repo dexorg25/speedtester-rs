@@ -1,4 +1,4 @@
-use color_eyre::Report;
+use color_eyre::{Report, Result};
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
@@ -9,6 +9,9 @@ use speedtester_rs::{IperfEndStream, IperfTest};
 
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+
+use axum::http::Request;
+use tower_http::asdfl;
 
 #[derive(Parser)]
 struct Config {
@@ -43,6 +46,27 @@ struct Config {
     /// Iperf3 server port
     #[clap(default_value = "5201", env = "IPERF_PORT")]
     iperf_port: u16,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let mut req = Request::new("");
+
+    let mut client = ServiceBuilder::new()
+        // Wrap a `hyper::Client` in our middleware stack.
+        // This is possible because `hyper::Client` implements
+        // `tower::Service`.
+        .service(hyper::Client::new());
+
+    // Make a request
+    let request = Request::builder()
+        .uri("http://example.com")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = client.ready().await.unwrap().call(request).await.unwrap();
+
+    Ok(())
 }
 
 fn connect_db(
@@ -81,7 +105,7 @@ fn connect_db(
     Ok(ret)
 }
 
-fn main() -> Result<(), Report> {
+fn old_main() -> Result<(), Report> {
     setup()?;
 
     // Argument parsing defined by `Config`

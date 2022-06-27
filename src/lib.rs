@@ -12,6 +12,8 @@ use std::fmt;
 
 mod iperf_bindings;
 
+pub mod api;
+
 pub enum TestRole {
     Client,
     Server,
@@ -85,9 +87,9 @@ impl IperfTest {
         let mut arg_buffer: Vec<CString> =
             args.into_iter().map(|a| CString::new(a).unwrap()).collect();
 
-        let mut argv: Vec<*mut u8> = arg_buffer
+        let mut argv: Vec<*mut i8> = arg_buffer
             .iter_mut()
-            .map(|a| a.as_ptr() as *mut u8) // This feels illegal
+            .map(|a| a.as_ptr() as *mut i8) // This feels illegal
             .collect();
 
         let ret = unsafe {
@@ -131,8 +133,8 @@ impl IperfTest {
     pub fn set_test_role(&mut self, role: TestRole) {
         unsafe {
             match role {
-                TestRole::Client => iperf_bindings::iperf_set_test_role(self.inner, 'c' as u8),
-                TestRole::Server => iperf_bindings::iperf_set_test_role(self.inner, 's' as u8),
+                TestRole::Client => iperf_bindings::iperf_set_test_role(self.inner, 'c' as i8),
+                TestRole::Server => iperf_bindings::iperf_set_test_role(self.inner, 's' as i8),
             }
         }
     }
