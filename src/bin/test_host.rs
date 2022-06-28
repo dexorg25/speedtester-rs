@@ -2,15 +2,17 @@ use axum::{
     extract::{Form, Path},
     http::{Response, StatusCode},
     routing::post,
-    Router, Server,
+    Extension, Json, Router, Server,
 };
 use color_eyre::{Report, Result};
-use speedtester_rs::api::TestRequest;
-use speedtester_rs::IperfTest;
+use speedtester_rs::api::{TestRequest, TestReservation};
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
 };
+use tokio::util;
+use tower::ServiceBuilder;
+use tower_http::trace::TraceLayer;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -22,9 +24,8 @@ use uuid::Uuid;
 //- reply to req with test info
 // ensure test is cleaned up
 
-struct TestHandle {
-    test: IperfTest,
-}
+#[derive(Clone)]
+struct State {}
 
 #[tokio::main]
 async fn main() -> Result<(), Report> {
@@ -33,7 +34,13 @@ async fn main() -> Result<(), Report> {
     // Setup application state
     // let mut active_ports = Arc::new(Mutex::new(HashSet::new()));
 
-    let app = Router::new().route("/api/v1/newtest", post(new_test));
+    let app = Router::new()
+        .route("/api/v1/newtest", post(new_test))
+        .layer(
+            ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(Extension(State {})),
+        );
 
     info!("Listening on 0.0.0.0:8000");
     Server::bind(&"0.0.0.0:8000".parse().unwrap())
@@ -46,26 +53,36 @@ async fn main() -> Result<(), Report> {
 
 #[axum_macros::debug_handler]
 async fn new_test(
-    Form(request): Form<TestRequest>,
-) -> axum::response::Result<String, &'static str> {
+    Json(request): Json<TestRequest>,
+) -> axum::response::Result<Json<TestReservation>, &'static str> {
     info!("Client info: {request:#?}");
 
-    let port = 5201;
+    let port: u16 = 1;
 
     // Spawn iperf server into a thread and wait for it to come up
     let handle = tokio::spawn(spawn_server(1234))
         .await
         .expect("Iperf server start failed!!!");
 
+    // TODO: FInd a way to catch if the server fails to initialize, even if the exec call passes
+
     // when it is up reply to request with the port number
-    Ok(format!("{{\"port\": {port}}}"))
+    Ok(Json(TestReservation { port_number: 1234 }))
 }
 
 // Spawn an iperf server and return a handle to it's thread
 async fn spawn_server(port: u16) -> Result<tokio::process::Child> {
-    // Start as server, one-off, with port, JSON output (in case client wants it maybe)
+    // Start as server, one-off, with port, JSON output (in case client wants it maybe), and timeout if no one dials in in 10 seconds
     tokio::process::Command::new("iperf3")
-        .args(&["-s", "-p", &port.to_string(), "-1", "-J"])
+        .args(&[
+            "-s",
+            "-p",
+            &port.to_string(),
+            "-1",
+            "-J",
+            "--idle-timeout",
+            "10",
+        ])
         .spawn()
         .map_err(|e| e.into())
 }

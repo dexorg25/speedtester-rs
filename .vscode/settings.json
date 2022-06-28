@@ -15,4 +15,5 @@
     ],
     "makefile.preConfigureScript": "extern/iperf/configure_for_vscode.sh",
     "makefile.makeDirectory": "extern/iperf",
+    "editor.formatOnSave": true,
 }
