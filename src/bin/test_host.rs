@@ -10,7 +10,6 @@ use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
 };
-use tokio::util;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use tracing::info;
