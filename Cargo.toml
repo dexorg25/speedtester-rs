@@ -21,7 +21,6 @@ hyper = { version = "0.14.19", features = ["full"] }
 hyper-tls = "0.5.0"
 
 # May help libiperf find SSL, although not sure if this does anything significant
-# openssl-sys = "0.9.72"
 postgres = { version = "0.19.2", features = ["with-serde_json-1"] }
 rand = "0.8.5"
 serde = { version = "1.0.136", features = ["derive"] }
@@ -33,9 +32,5 @@ tracing = "0.1.31"
 tracing-subscriber = { version = "0.3.9", features = ["env-filter"] }
 uuid = { version = "1.1.2", features = ["serde"] }
 
-[build-dependencies]
-autotools = "0.2.5"
-bindgen = "0.60.1"
-color-eyre = "0.6.1"
 
 [features]
