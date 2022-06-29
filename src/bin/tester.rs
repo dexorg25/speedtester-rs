@@ -1,10 +1,11 @@
 use color_eyre::{Report, Result};
-use hyper::Body;
+use hyper::{Body, StatusCode};
+use speedtester_rs::iperf_reports::TestResults;
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
 
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use speedtester_rs::api::{TestRequest, TestReservation};
 use std::thread::sleep;
@@ -19,7 +20,7 @@ struct Config {
     test_host: String,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     use axum::http;
     setup()?;
@@ -44,19 +45,59 @@ async fn main() -> Result<()> {
 
     let resp = client.request(req).await?;
 
-    //TODO! check status before attempting to unwrap the body
-    let resp = hyper::body::to_bytes(resp.into_body()).await?;
-    let resp: TestReservation = serde_json::from_slice(&resp)?;
+    if resp.status() == StatusCode::OK {
+        let resp = hyper::body::to_bytes(resp.into_body()).await?;
+        let resp: TestReservation = serde_json::from_slice(&resp)?;
 
-    let mut handle = tokio::process::Command::new("iperf3")
-        .args(&["-c", "localhost", "-p", &resp.port_number.to_string(), "-J"])
-        .spawn()?;
+        debug!("Executing test to localhost at port {}", resp.port_number);
 
-    handle.wait().await?;
+        let handle = tokio::process::Command::new("iperf3")
+            .args(&["-c", "localhost", "-p", &resp.port_number.to_string(), "-J"])
+            .output()
+            .await?;
+
+        let test_report: TestResults = serde_json::from_slice(&handle.stdout).map_err(|e| {
+            let out_str = String::from_utf8_lossy(&handle.stdout);
+            error!("Failed to parse input report: '{out_str}'");
+            e
+        })?;
+
+        // Complain about errors, although the full report should be uploaded anyway
+        if let Some(msg) = &test_report.error {
+            error!("Iperf test failed with error {}", msg);
+        } else {
+            error!("UDP report not found in test report!!");
+        }
+
+        debug!("Test Report: {test_report:#?}");
+
+        //TODO: Upload to database endpoint
+    } else {
+        error!("Server replied with error {:?}", resp);
+    }
 
     Ok(())
 }
 
+fn setup() -> Result<(), Report> {
+    // Load environment from .env if present for dev convenience
+    dotenv::dotenv().ok();
+
+    // if std::env::var("RUST_LIB_BACKTRACE").is_err() {
+    //     std::env::set_var("RUST_LIB_BACKTRACE", "1")
+    // }
+    color_eyre::install()?;
+
+    // For now, debug at top level and info for all other modules and crates. Will change to warning later
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info")
+    }
+    tracing_subscriber::fmt::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
+
+    Ok(())
+}
 // fn connect_db(
 //     host: &str,
 //     port: u16,
@@ -206,23 +247,3 @@ async fn main() -> Result<()> {
 //         }
 //     }
 // }
-
-fn setup() -> Result<(), Report> {
-    // Load environment from .env if present for dev convenience
-    dotenv::dotenv().ok();
-
-    if std::env::var("RUST_LIB_BACKTRACE").is_err() {
-        std::env::set_var("RUST_LIB_BACKTRACE", "1")
-    }
-    color_eyre::install()?;
-
-    // For now, debug at top level and info for all other modules and crates. Will change to warning later
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info")
-    }
-    tracing_subscriber::fmt::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
-
-    Ok(())
-}

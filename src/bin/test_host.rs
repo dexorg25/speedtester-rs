@@ -5,17 +5,22 @@ use axum::{
     Extension, Json, Router, Server,
 };
 use color_eyre::{Report, Result};
+use rand::prelude::*;
 use speedtester_rs::api::{TestRequest, TestReservation};
 use std::{
     collections::HashSet,
+    error::Error,
+    future::Future,
+    net::TcpListener,
+    process::{ExitStatus, Output},
     sync::{Arc, Mutex},
+    time::Duration,
 };
-use tower::ServiceBuilder;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, SemaphorePermit};
+use tower::{limit::GlobalConcurrencyLimitLayer, ServiceBuilder};
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{debug, error, info, trace};
 use tracing_subscriber::EnvFilter;
-use uuid::Uuid;
-// rest api
 
 // new test
 //- spawn thread
@@ -23,22 +28,33 @@ use uuid::Uuid;
 //- reply to req with test info
 // ensure test is cleaned up
 
-#[derive(Clone)]
-struct State {}
+// Constants
+const MAX_CONCURRENT_TESTS: usize = 5;
+
+struct State {
+    active_ports: Arc<Mutex<HashSet<u16>>>,
+    test_counter: Arc<Semaphore>,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     setup()?;
 
     // Setup application state
-    // let mut active_ports = Arc::new(Mutex::new(HashSet::new()));
+    let state = Arc::new(State {
+        active_ports: Arc::new(Mutex::new(HashSet::new())),
+        test_counter: Arc::new(Semaphore::new(MAX_CONCURRENT_TESTS)),
+    });
 
+    //TODO: Auth layer
     let app = Router::new()
         .route("/api/v1/newtest", post(new_test))
         .layer(
             ServiceBuilder::new()
+                // First layer of rate limiting, only this many inflight requests
+                .layer(GlobalConcurrencyLimitLayer::new(50))
                 .layer(TraceLayer::new_for_http())
-                .layer(Extension(State {})),
+                .layer(Extension(state)),
         );
 
     info!("Listening on 0.0.0.0:8000");
@@ -53,37 +69,76 @@ async fn main() -> Result<(), Report> {
 #[axum_macros::debug_handler]
 async fn new_test(
     Json(request): Json<TestRequest>,
+    Extension(state): Extension<Arc<State>>,
 ) -> axum::response::Result<Json<TestReservation>, &'static str> {
     info!("Client info: {request:#?}");
 
-    let port: u16 = 1;
+    // Axum has an inflight request limit, however iperf instances are more expensive and my linode is small
+    // Hold clients here in a queue until enough other tests expire
+    let test_permit = state.test_counter.clone().acquire_owned().await.unwrap();
 
-    // Spawn iperf server into a thread and wait for it to come up
-    let handle = tokio::spawn(spawn_server(1234))
-        .await
-        .expect("Iperf server start failed!!!");
+    // Small loop to generate a new, free port for iperf to bind to
+    let port: u16 = {
+        // Lock and borrow while finding a new port
+        let mut port_set = state.active_ports.lock().unwrap();
 
-    // TODO: FInd a way to catch if the server fails to initialize, even if the exec call passes
+        let mut rng = thread_rng();
+        loop {
+            let port = rng.gen_range(5000..6000);
+            if !port_set.contains(&port) || !port_in_use(port) {
+                port_set.insert(port);
+                break port;
+            }
+        }
+    };
 
-    // when it is up reply to request with the port number
-    Ok(Json(TestReservation { port_number: 1234 }))
+    // Spawn iperf server into a thread
+    let res = tokio::process::Command::new("iperf3")
+        .args(&["-s", "-p", &port.to_string(), "-1", "--idle-timeout", "10"])
+        .output();
+
+    // Asynchronously wait for the test to finish away from here
+    tokio::spawn(wait_for_iperf(port, state, test_permit, res));
+
+    // Give server some time to initialize...
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // This assumes that the server launch passed, and further that the server runs correctly
+    // given the commands listed above, there will be issues if any of those fail to hold true
+    // If the port is in use, which _shouldn't_ happen but still technically could, then this will break
+
+    // when test server has been started reply to request with the port number
+    Ok(Json(TestReservation { port_number: port }))
 }
 
-// Spawn an iperf server and return a handle to it's thread
-async fn spawn_server(port: u16) -> Result<tokio::process::Child> {
+fn port_in_use(port: u16) -> bool {
+    TcpListener::bind(("0.0.0.0", port)).is_ok()
+}
+
+async fn authenticate() {}
+
+// Consume an iperf server process handle and wait for it to finish
+async fn wait_for_iperf<T, E>(port: u16, state: Arc<State>, _permit: OwnedSemaphorePermit, task: T)
+where
+    T: Future<Output = Result<Output, E>>,
+    E: Error,
+{
+    debug!("Waiting for iperf server on port {port}");
     // Start as server, one-off, with port, JSON output (in case client wants it maybe), and timeout if no one dials in in 10 seconds
-    tokio::process::Command::new("iperf3")
-        .args(&[
-            "-s",
-            "-p",
-            &port.to_string(),
-            "-1",
-            "-J",
-            "--idle-timeout",
-            "10",
-        ])
-        .spawn()
-        .map_err(|e| e.into())
+
+    let res = task.await.unwrap();
+
+    if !res.status.success() {
+        let out_str = String::from_utf8_lossy(&res.stdout);
+        error!("Iperf server exited '{}', output follows", res.status);
+        error!("{out_str}");
+    } else {
+        debug!("Iperf server exited successfully!");
+    }
+
+    let mut ports = state.active_ports.lock().unwrap();
+    ports.remove(&port);
+    // Test permit is dropped here
 }
 
 fn setup() -> Result<(), Report> {

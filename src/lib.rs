@@ -3,16 +3,15 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
-use color_eyre::{eyre::eyre, Report};
-use iperf_reports::TestResults;
-use std::ffi::{CStr, CString};
-use std::fmt;
-
 // mod iperf_bindings;
 pub mod iperf_reports;
 
 pub mod api;
 
+// use color_eyre::{eyre::eyre, Report};
+// use iperf_reports::TestResults;
+// use std::ffi::{CStr, CString};
+// use std::fmt;
 // pub enum TestRole {
 //     Client,
 //     Server,
