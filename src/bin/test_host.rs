@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, SemaphorePermit};
-use tower::{limit::GlobalConcurrencyLimitLayer, ServiceBuilder};
+use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::EnvFilter;
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Report> {
         .layer(
             ServiceBuilder::new()
                 // First layer of rate limiting, only this many inflight requests
-                .layer(GlobalConcurrencyLimitLayer::new(50))
+                .concurrency_limit(50)
                 .layer(TraceLayer::new_for_http())
                 .layer(Extension(state)),
         );
