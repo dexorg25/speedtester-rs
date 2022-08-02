@@ -1,25 +1,22 @@
-use axum::{
-    extract::{Form, Path},
-    http::{Response, StatusCode},
-    routing::post,
-    Extension, Json, Router, Server,
-};
+use axum::{routing::post, Extension, Json, Router, Server};
 use color_eyre::{Report, Result};
 use rand::prelude::*;
 use speedtester_rs::api::{TestRequest, TestReservation};
+
 use std::{
     collections::HashSet,
     error::Error,
     future::Future,
     net::TcpListener,
-    process::{ExitStatus, Output},
+    process::Output,
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, SemaphorePermit};
+use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::Semaphore;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 
 // new test
@@ -115,7 +112,7 @@ fn port_in_use(port: u16) -> bool {
     TcpListener::bind(("0.0.0.0", port)).is_ok()
 }
 
-async fn authenticate() {}
+async fn _authenticate() {}
 
 // Consume an iperf server process handle and wait for it to finish
 async fn wait_for_iperf<T, E>(port: u16, state: Arc<State>, _permit: OwnedSemaphorePermit, task: T)

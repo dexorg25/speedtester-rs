@@ -1,53 +1,171 @@
 use color_eyre::{Report, Result};
-use hyper::{Body, StatusCode};
 use speedtester_rs::iperf_reports::TestResults;
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
 
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
+use core::fmt;
 use speedtester_rs::api::{TestRequest, TestReservation};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use axum::http::Request;
-use hyper_tls::HttpsConnector;
+use reqwest::Client;
+use reqwest::StatusCode;
 
 #[derive(Parser)]
 struct Config {
     #[clap(env = "TEST_HOST")]
     test_host: String,
+    /// Interval at which to run tests (in m&inutes)
+    #[clap(short, default_value = "1", env = "INTERVAL")]
+    interval: f32,
+
+    /// Database name
+    #[clap(env = "DBNAME")]
+    database: String,
+
+    /// Database Host  
+    #[clap(env = "DBHOST")]
+    dbhost: String,
+
+    /// Database User
+    #[clap(env = "DBUSER")]
+    dbuser: String,
+
+    /// Database password
+    #[clap(default_value = "", env = "DBPASS")]
+    dbpass: String,
+
+    /// Database port
+    #[clap(default_value = "5432", env = "DBPORT")]
+    dbport: u16,
+
+    /// Maximum DB retries
+    #[clap(default_value = "0", env = "MAX_DB_RETRIES")]
+    max_db_retries: u32,
 }
+
+#[derive(Debug, Clone)]
+enum SpeedtesterError {
+    TestHostError(String),
+}
+
+impl fmt::Display for SpeedtesterError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::TestHostError(err) => write!(f, "Test Host replied with '{err}'"),
+        }
+    }
+}
+
+impl std::error::Error for SpeedtesterError {}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    use axum::http;
     setup()?;
 
     // Argument parsing defined by `Config`
     let args = Config::parse();
 
     let test_host = args.test_host;
+    let mut db_retry_counter: u32 = 0;
 
+    // Construct HTTP client once for reuse between tests
+    let http_client = Client::new();
+
+    loop {
+        // On successful connect, reset retry counter, else decrement
+        match connect_db(
+            &args.dbhost,
+            args.dbport,
+            &args.database,
+            &args.dbuser,
+            &args.dbpass,
+        ) {
+            Ok(mut client) => {
+                db_retry_counter = 0;
+
+                // Initialize test timer
+                let mut last_test_time = Instant::now();
+
+                // test loop, while DB client is valid
+                loop {
+                    match client.is_valid(Duration::from_secs(5)) {
+                        Ok(()) => {
+                            // Schedule next test from last_test_time (which should theoretically be about Instant::now() unless we fell behind)
+                            let next_test_time =
+                                last_test_time + Duration::from_secs_f32(args.interval * 60.);
+
+                            // Execute the test, and if the process passed save the result
+                            match execute_test(&http_client, &test_host).await {
+                                Ok(report) => {
+                                    // Upload the full log, this binary is not concerned with much of anything in it beyond validation of the general structure
+                                    client.execute(
+                                        "INSERT INTO packet_loss_tests_v2 (test) VALUES ($1)",
+                                        &[&postgres::types::Json(report)],
+                                    )?;
+                                }
+                                Err(e) => error!("Test failed to start with error {e}"),
+                            }
+
+                            // Sleep if the next scheduled test is in the future
+                            let now = Instant::now();
+                            if now < next_test_time {
+                                // Sleep the thread until it's time to run again
+                                sleep(next_test_time - now);
+                            } // else continue the loop immediately
+
+                            // last_test_time should be about Instant::now() after wake (or earlier), roll it over to last_test_time
+                            last_test_time = next_test_time;
+                        }
+                        Err(e) => {
+                            error!("Invalid client: {e}, retry connection...");
+                            break; // Raise this to the DB reconnect loop, since most reasons a client would be invalid require a reconnect
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if (args.max_db_retries != 0) && (db_retry_counter <= args.max_db_retries) {
+                    db_retry_counter += 1;
+                    error!("Failed to connect to database with error {e}, retrying for the {db_retry_counter}th time...");
+                    sleep(Duration::from_secs(1)); // throttle retries some, this should keep this counter from ever rolling
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Execute an iperf test against a remote endpoint running the test_host binary on the passed-in URL
+/// The return will be Ok(..) if:
+///  - The remote host accepted our test request
+///  - The local iperf invocation returned _something_
+///  - Whatever the local iperf tool returned parsed without error
+///
+/// Important note here, that an Ok return does not necessarily mean that the test succeeded, only that it was very likely to. The iperf test report should be parsed for status
+async fn execute_test(
+    client: &Client,
+    test_host: &str,
+) -> Result<TestResults, Box<dyn std::error::Error>> {
     let payload: TestRequest = TestRequest {
         client_name: "Hello From here!".into(),
     };
-    let payload = serde_json::to_string(&payload)?;
-    info!("Sending req body: {payload}");
-    let req = Request::builder()
-        .method(http::Method::POST)
-        .uri(&test_host)
+    info!("Sending req body: {payload:?}");
+    let resp = client
+        .post(test_host)
         .header("Content-Type", "application/json")
-        .body(Body::from(payload))?;
-
-    let client = hyper::Client::builder().build(HttpsConnector::new());
-
-    let resp = client.request(req).await?;
+        .json(&payload)
+        .send()
+        .await?;
 
     if resp.status() == StatusCode::OK {
-        let resp = hyper::body::to_bytes(resp.into_body()).await?;
-        let resp: TestReservation = serde_json::from_slice(&resp)?;
+        let resp: TestReservation = resp.json().await?;
 
         debug!("Executing test to localhost at port {}", resp.port_number);
 
@@ -64,19 +182,18 @@ async fn main() -> Result<()> {
 
         // Complain about errors, although the full report should be uploaded anyway
         if let Some(msg) = &test_report.error {
-            error!("Iperf test failed with error {}", msg);
-        } else {
-            error!("UDP report not found in test report!!");
+            warn!("Iperf test failed with error {}", msg);
         }
 
-        debug!("Test Report: {test_report:#?}");
+        debug!(iperf_report = ?test_report);
 
-        //TODO: Upload to database endpoint
+        Ok(test_report)
     } else {
-        error!("Server replied with error {:?}", resp);
+        error!(test_host_response = ?resp);
+        Err(Box::new(SpeedtesterError::TestHostError(
+            resp.text().await?,
+        )))
     }
-
-    Ok(())
 }
 
 fn setup() -> Result<(), Report> {
@@ -98,152 +215,43 @@ fn setup() -> Result<(), Report> {
 
     Ok(())
 }
-// fn connect_db(
-//     host: &str,
-//     port: u16,
-//     database: &str,
-//     user: &str,
-//     pass: &str,
-// ) -> Result<postgres::Client, postgres::Error> {
-//     let mut ret = postgres::Config::new()
-//         .application_name("speedtester-rs")
-//         .host(host)
-//         .port(port)
-//         .user(user)
-//         .password(pass)
-//         .dbname(database)
-//         .connect_timeout(Duration::from_secs(60))
-//         .connect(postgres::NoTls)?;
+fn connect_db(
+    host: &str,
+    port: u16,
+    database: &str,
+    user: &str,
+    pass: &str,
+) -> Result<postgres::Client, postgres::Error> {
+    let mut ret = postgres::Config::new()
+        .application_name("speedtester-rs")
+        .host(host)
+        .port(port)
+        .user(user)
+        .password(pass)
+        .dbname(database)
+        .connect_timeout(Duration::from_secs(60))
+        .connect(postgres::NoTls)?;
 
-//     info!("Connected to database {database} at {user}@{host}!");
+    info!("Connected to database {database} at {user}@{host}!");
 
-//     // Make the tables if not there
-//     ret.batch_execute(
-//         "
-//         CREATE TABLE IF NOT EXISTS packet_loss_ts (
-//             ts      timestamptz PRIMARY KEY DEFAULT NOW(),
-//             loss    float8
-//         );
-//         CREATE TABLE IF NOT EXISTS packet_loss_tests (
-//             ts      timestamptz PRIMARY KEY DEFAULT NOW(),
-//             test    jsonb NOT NULL
-//         )
-//     ",
-//     )?;
+    // Make the tables if not there
+    ret.batch_execute(
+        "
+        CREATE TABLE IF NOT EXISTS packet_loss_ts (
+            ts      timestamptz PRIMARY KEY DEFAULT NOW(),
+            loss    float8
+        );
+        CREATE TABLE IF NOT EXISTS packet_loss_tests (
+            ts      timestamptz PRIMARY KEY DEFAULT NOW(),
+            test    jsonb NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS packet_loss_tests_v2 (
+            ts      timestamptz PRIMARY KEY DEFAULT NOW(),
+            client_id INET NOT NULL DEFAULT inet_client_addr(),
+            test    jsonb NOT NULL
+        )
+    ",
+    )?;
 
-//     Ok(ret)
-// }
-
-// fn old_main() -> Result<(), Report> {
-//     setup()?;
-
-//     // Argument parsing defined by `Config`
-//     let args = Config::parse();
-
-//     info!(
-//         "Starting speedtester loop on {}-second interval!",
-//         args.interval * 60.
-//     );
-
-//     if args.interval * 60. <= 10. {
-//         warn!("The test usually takes 10-11 seconds, the current configuration will have no dead time!!");
-//     }
-
-//     // Track the number of retries
-//     let mut db_retry_counter: u64 = 0;
-
-//     // DB connect retry loop
-//     loop {
-//         // On successful connect, reset retry counter, else decrement
-//         match connect_db(
-//             &args.dbhost,
-//             args.dbport,
-//             &args.database,
-//             &args.dbuser,
-//             &args.dbpass,
-//         ) {
-//             Ok(mut client) => {
-//                 db_retry_counter = 0;
-
-//                 // Initialize test timer
-//                 let mut last_test_time = Instant::now();
-
-//                 // test loop, while DB client is valid
-//                 loop {
-//                     match client.is_valid(Duration::from_secs(5)) {
-//                         Ok(()) => {
-//                             // Schedule next test from last_test_time (which should theoretically be about Instant::now() unless we fell behind)
-//                             let next_test_time =
-//                                 last_test_time + Duration::from_secs_f32(args.interval * 60.);
-
-//                             // Construct argv for iperf with argument 0 cribbed from our argv[0], and others to define the test to run
-//                             let mut test = IperfTest::new_from_arguments([
-//                                 &args().next().unwrap(),
-//                                 "-c",
-//                                 &args.iperf_host,
-//                                 "-p",
-//                                 &args.iperf_port.to_string(),
-//                                 "-u",
-//                                 "--logfile",
-//                                 "/dev/null",
-//                             ])?;
-
-//                             // Only keep the ending stats around
-//                             match test.run_client() {
-//                                 Ok(results) => {
-//                                     let end = &results.end;
-
-//                                     // Perform the test and print the result
-//                                     let IperfEndStream::udp { lost_percent, .. } = &end.streams[0];
-//                                     debug!(
-//                                         "Speed test done, upstream packet loss is {lost_percent}%"
-//                                     );
-
-//                                     // Send the result to a database (this will panic if the client is disconnected? that may not be a problem)
-//                                     client.execute(
-//                                         "INSERT INTO packet_loss_ts (loss) VALUES ($1)",
-//                                         &[&lost_percent],
-//                                     )?;
-
-//                                     // Upload the full log too
-//                                     client.execute(
-//                                         "INSERT INTO packet_loss_tests (test) VALUES ($1)",
-//                                         &[&postgres::types::Json(results)],
-//                                     )?;
-//                                 }
-//                                 Err(e) => {
-//                                     error!("iPerf error {e}");
-
-//                                     // Insert a null to signify a failed test
-//                                     client.execute(
-//                                         "INSERT INTO packet_loss_ts (loss) VALUES (NULL)",
-//                                         &[],
-//                                     )?;
-//                                 }
-//                             }
-
-//                             // Sleep if the next scheduled test is in the future
-//                             let now = Instant::now();
-//                             if now < next_test_time {
-//                                 // Sleep the thread until it's time to run again
-//                                 sleep(next_test_time - now);
-//                             } // else continue the loop immediately
-
-//                             // last_test_time should be about Instant::now() after wake (or earlier), roll it over to last_test_time
-//                             last_test_time = next_test_time;
-//                         }
-//                         Err(e) => {
-//                             error!("Invalid client: {e}, retry connection...");
-//                             break; // Raise this to the DB reconnect loop, since most reasons a client would be invalid require a reconnect
-//                         }
-//                     }
-//                 }
-//             }
-//             Err(e) => {
-//                 db_retry_counter += 1;
-//                 error!("Failed to connect to database with error {e}, retrying for the {db_retry_counter}th time...");
-//                 sleep(Duration::from_secs(1)); // throttle retries some, this should keep this counter from ever rolling
-//             }
-//         }
-//     }
-// }
+    Ok(ret)
+}

@@ -17,12 +17,10 @@ clap = { version = "3.1.5", features = [
 ] }
 color-eyre = "0.6.1"
 dotenv = "0.15.0"
-hyper = { version = "0.14.19", features = ["full"] }
-hyper-tls = "0.5.0"
 
-# May help libiperf find SSL, although not sure if this does anything significant
 postgres = { version = "0.19.2", features = ["with-serde_json-1"] }
 rand = "0.8.5"
+reqwest = { version = "0.11.11", features = ["json"] }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.79"
 tokio = { version = "1.17.0", features = ["full"] }
