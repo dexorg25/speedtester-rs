@@ -83,48 +83,48 @@ async fn main() -> Result<()> {
             &args.database,
             &args.dbuser,
             &args.dbpass,
-        ) {
-            Ok(mut client) => {
+        )
+        .await
+        {
+            Ok(client) => {
                 db_retry_counter = 0;
 
                 // Initialize test timer
                 let mut last_test_time = Instant::now();
 
-                // test loop, while DB client is valid
+                // test driver loop
                 loop {
-                    match client.is_valid(Duration::from_secs(5)) {
-                        Ok(()) => {
-                            // Schedule next test from last_test_time (which should theoretically be about Instant::now() unless we fell behind)
-                            let next_test_time =
-                                last_test_time + Duration::from_secs_f32(args.interval * 60.);
+                    // Schedule next test from last_test_time (which should theoretically be about Instant::now() unless we fell behind)
+                    let next_test_time =
+                        last_test_time + Duration::from_secs_f32(args.interval * 60.);
 
-                            // Execute the test, and if the process passed save the result
-                            match execute_test(&http_client, &test_host).await {
-                                Ok(report) => {
-                                    // Upload the full log, this binary is not concerned with much of anything in it beyond validation of the general structure
-                                    client.execute(
-                                        "INSERT INTO packet_loss_tests_v2 (test) VALUES ($1)",
-                                        &[&postgres::types::Json(report)],
-                                    )?;
-                                }
-                                Err(e) => error!("Test failed to start with error {e}"),
+                    // Execute the test, and if the process passed save the result
+                    match execute_test(&http_client, &test_host).await {
+                        Ok(report) => {
+                            // Upload the full log, this binary is not concerned with much of anything in it beyond validation of the general structure
+                            if client
+                                .execute(
+                                    "INSERT INTO packet_loss_tests_v2 (test) VALUES ($1)",
+                                    &[&tokio_postgres::types::Json(report)],
+                                )
+                                .await
+                                .is_err()
+                            {
+                                break; // if the INSERT fails then reconnect
                             }
-
-                            // Sleep if the next scheduled test is in the future
-                            let now = Instant::now();
-                            if now < next_test_time {
-                                // Sleep the thread until it's time to run again
-                                sleep(next_test_time - now);
-                            } // else continue the loop immediately
-
-                            // last_test_time should be about Instant::now() after wake (or earlier), roll it over to last_test_time
-                            last_test_time = next_test_time;
                         }
-                        Err(e) => {
-                            error!("Invalid client: {e}, retry connection...");
-                            break; // Raise this to the DB reconnect loop, since most reasons a client would be invalid require a reconnect
-                        }
+                        Err(e) => error!("Test failed to start with error {e}"),
                     }
+
+                    // Sleep if the next scheduled test is in the future
+                    let now = Instant::now();
+                    if now < next_test_time {
+                        // Sleep the thread until it's time to run again
+                        sleep(next_test_time - now);
+                    } // else continue the loop immediately
+
+                    // last_test_time should be about Instant::now() after wake (or earlier), roll it over to last_test_time
+                    last_test_time = next_test_time;
                 }
             }
             Err(e) => {
@@ -207,7 +207,7 @@ fn setup() -> Result<(), Report> {
 
     // For now, debug at top level and info for all other modules and crates. Will change to warning later
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info")
+        std::env::set_var("RUST_LOG", "debug")
     }
     tracing_subscriber::fmt::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -215,14 +215,14 @@ fn setup() -> Result<(), Report> {
 
     Ok(())
 }
-fn connect_db(
+async fn connect_db(
     host: &str,
     port: u16,
     database: &str,
     user: &str,
     pass: &str,
-) -> Result<postgres::Client, postgres::Error> {
-    let mut ret = postgres::Config::new()
+) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
+    let (client, _socket) = tokio_postgres::Config::new()
         .application_name("speedtester-rs")
         .host(host)
         .port(port)
@@ -230,13 +230,15 @@ fn connect_db(
         .password(pass)
         .dbname(database)
         .connect_timeout(Duration::from_secs(60))
-        .connect(postgres::NoTls)?;
+        .connect(tokio_postgres::NoTls)
+        .await?;
 
     info!("Connected to database {database} at {user}@{host}!");
 
     // Make the tables if not there
-    ret.batch_execute(
-        "
+    client
+        .batch_execute(
+            "
         CREATE TABLE IF NOT EXISTS packet_loss_ts (
             ts      timestamptz PRIMARY KEY DEFAULT NOW(),
             loss    float8
@@ -251,7 +253,8 @@ fn connect_db(
             test    jsonb NOT NULL
         )
     ",
-    )?;
+        )
+        .await?;
 
-    Ok(ret)
+    Ok(client)
 }

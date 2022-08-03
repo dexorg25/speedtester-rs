@@ -11,11 +11,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=speedtester-rs",
+                    "--bin=test_host",
                     "--package=speedtester-rs"
                 ],
                 "filter": {
-                    "name": "speedtester-rs",
+                    "name": "test_host",
                     "kind": "bin"
                 }
             },
