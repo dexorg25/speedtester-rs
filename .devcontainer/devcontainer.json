@@ -23,7 +23,8 @@
 		"serayuzgur.crates",
 		"ckolkman.vscode-postgres",
 		"ms-vscode.makefile-tools",
-		"ms-vscode.cpptools-extension-pack"
+		"ms-vscode.cpptools-extension-pack",
+		"rust-lang.rust-analyzer"
 	],
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [5432],
