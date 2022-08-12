@@ -70,9 +70,12 @@ async fn main() -> Result<()> {
     let args = Config::parse();
 
     let test_host = args.test_host;
+
+    let test_url = test_host + "/api/v1/newtest";
     let mut db_retry_counter: u32 = 0;
 
     // Construct HTTP client once for reuse between tests
+    debug!("Create HTTP client");
     let http_client = Client::new();
 
     loop {
@@ -99,7 +102,7 @@ async fn main() -> Result<()> {
                         last_test_time + Duration::from_secs_f32(args.interval * 60.);
 
                     // Execute the test, and if the process passed save the result
-                    match execute_test(&http_client, &test_host).await {
+                    match execute_test(&http_client, &test_url).await {
                         Ok(report) => {
                             // Upload the full log, this binary is not concerned with much of anything in it beyond validation of the general structure
                             if client
@@ -128,17 +131,20 @@ async fn main() -> Result<()> {
                 }
             }
             Err(e) => {
-                if (args.max_db_retries != 0) && (db_retry_counter <= args.max_db_retries) {
+                // Retry if retries are 0 or we have not exceeded the total
+                if (args.max_db_retries == 0) || (db_retry_counter <= args.max_db_retries) {
                     db_retry_counter += 1;
                     error!("Failed to connect to database with error {e}, retrying for the {db_retry_counter}th time...");
                     sleep(Duration::from_secs(1)); // throttle retries some, this should keep this counter from ever rolling
                 } else {
+                    error!("DB Max Retries Exceeded");
                     break;
                 }
             }
         }
     }
 
+    error!("DB Connect failed");
     Ok(())
 }
 
@@ -236,25 +242,28 @@ async fn connect_db(
     info!("Connected to database {database} at {user}@{host}!");
 
     // Make the tables if not there
-    client
-        .batch_execute(
-            "
-        CREATE TABLE IF NOT EXISTS packet_loss_ts (
-            ts      timestamptz PRIMARY KEY DEFAULT NOW(),
-            loss    float8
-        );
-        CREATE TABLE IF NOT EXISTS packet_loss_tests (
-            ts      timestamptz PRIMARY KEY DEFAULT NOW(),
-            test    jsonb NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS packet_loss_tests_v2 (
-            ts      timestamptz PRIMARY KEY DEFAULT NOW(),
-            client_id INET NOT NULL DEFAULT inet_client_addr(),
-            test    jsonb NOT NULL
-        )
-    ",
-        )
-        .await?;
+    //debug!("Create tables if not exist");
+    //client
+    //.batch_execute(
+    //"
+    //CREATE TABLE IF NOT EXISTS packet_loss_ts (
+    //ts      timestamptz PRIMARY KEY DEFAULT NOW(),
+    //loss    float8
+    //);
+    //CREATE TABLE IF NOT EXISTS packet_loss_tests (
+    //ts      timestamptz PRIMARY KEY DEFAULT NOW(),
+    //test    jsonb NOT NULL
+    //);
+    //CREATE TABLE IF NOT EXISTS packet_loss_tests_v2 (
+    //ts      timestamptz PRIMARY KEY DEFAULT NOW(),
+    //client_id INET NOT NULL DEFAULT inet_client_addr(),
+    //test    jsonb NOT NULL
+    //);
+    //",
+    //)
+    //.await?;
+
+    debug!("Creeated tables (or they existed)");
 
     Ok(client)
 }

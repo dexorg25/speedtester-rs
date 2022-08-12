@@ -7,7 +7,7 @@ use std::{
     collections::HashSet,
     error::Error,
     future::Future,
-    net::TcpListener,
+    net::{SocketAddr, TcpListener},
     process::Output,
     sync::{Arc, Mutex},
     time::Duration,
@@ -19,6 +19,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 
+use clap::Parser;
 // new test
 //- spawn thread
 //- create iperf server ctx for one off
@@ -33,9 +34,17 @@ struct State {
     test_counter: Arc<Semaphore>,
 }
 
+#[derive(Parser)]
+struct Config {
+    #[clap(default_value = "0.0.0.0:8080", env = "HOST_ADDR")]
+    api_address: SocketAddr,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     setup()?;
+
+    let cfg = Config::parse();
 
     // Setup application state
     let state = Arc::new(State {
@@ -54,8 +63,8 @@ async fn main() -> Result<(), Report> {
                 .layer(Extension(state)),
         );
 
-    info!("Listening on 0.0.0.0:8000");
-    Server::bind(&"0.0.0.0:8000".parse().unwrap())
+    info!("Listening on {}", cfg.api_address);
+    Server::bind(&cfg.api_address)
         .serve(app.into_make_service())
         .await
         .unwrap();
