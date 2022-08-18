@@ -228,7 +228,7 @@ async fn connect_db(
     user: &str,
     pass: &str,
 ) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
-    let (client, _socket) = tokio_postgres::Config::new()
+    let (client, stream) = tokio_postgres::Config::new()
         .application_name("speedtester-rs")
         .host(host)
         .port(port)
@@ -242,26 +242,26 @@ async fn connect_db(
     info!("Connected to database {database} at {user}@{host}!");
 
     // Make the tables if not there
-    //debug!("Create tables if not exist");
-    //client
-    //.batch_execute(
-    //"
-    //CREATE TABLE IF NOT EXISTS packet_loss_ts (
-    //ts      timestamptz PRIMARY KEY DEFAULT NOW(),
-    //loss    float8
-    //);
-    //CREATE TABLE IF NOT EXISTS packet_loss_tests (
-    //ts      timestamptz PRIMARY KEY DEFAULT NOW(),
-    //test    jsonb NOT NULL
-    //);
-    //CREATE TABLE IF NOT EXISTS packet_loss_tests_v2 (
-    //ts      timestamptz PRIMARY KEY DEFAULT NOW(),
-    //client_id INET NOT NULL DEFAULT inet_client_addr(),
-    //test    jsonb NOT NULL
-    //);
-    //",
-    //)
-    //.await?;
+    debug!("Create tables if not exist");
+    client
+        .batch_execute(
+            "
+    CREATE TABLE IF NOT EXISTS packet_loss_ts (
+    ts      timestamptz PRIMARY KEY DEFAULT NOW(),
+    loss    float8
+    );
+    CREATE TABLE IF NOT EXISTS packet_loss_tests (
+    ts      timestamptz PRIMARY KEY DEFAULT NOW(),
+    test    jsonb NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS packet_loss_tests_v2 (
+    ts      timestamptz PRIMARY KEY DEFAULT NOW(),
+    client_id INET NOT NULL DEFAULT inet_client_addr(),
+    test    jsonb NOT NULL
+    );
+    ",
+        )
+        .await?;
 
     debug!("Creeated tables (or they existed)");
 
