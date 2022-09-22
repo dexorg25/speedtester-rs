@@ -1,5 +1,5 @@
-use axum::{routing::post, Extension, Json, Router, Server};
-use color_eyre::{Report, Result};
+use axum::{http::StatusCode, routing::post, Extension, Json, Router, Server};
+use color_eyre::{eyre::eyre, Report, Result};
 use rand::prelude::*;
 use speedtester_rs::api::{TestRequest, TestReservation};
 
@@ -40,7 +40,7 @@ struct TestPermit {
 
 impl TestPermit {
     // Get a random port from the pool that's not already in use, and return it with the semaphore guard
-    async fn new(sem: Arc<Semaphore>, ports: Arc<Mutex<HashSet<u16>>>) -> Self {
+    async fn new(sem: Arc<Semaphore>, ports: Arc<Mutex<HashSet<u16>>>) -> Result<Self> {
         // Small loop to generate a new, free port for iperf to bind to
         let port_number = {
             loop {
@@ -51,7 +51,9 @@ impl TestPermit {
                 //   (say this runs something else after one of these awaits and that something else is another test request)
                 //   then if there were no hash set check, two test requests could be created with the same port number and one of the iperfs might fail
                 if !port_in_use(port).await {
-                    let mut ports_guard = ports.lock().unwrap();
+                    let mut ports_guard = ports
+                        .lock()
+                        .map_err(|_| eyre!("Other worker panicked with mutex"))?;
                     if !ports_guard.contains(&port) {
                         ports_guard.insert(port);
                         break port;
@@ -60,18 +62,21 @@ impl TestPermit {
             }
         };
         // Iperf concurrency limit is ensured here
-        Self {
-            _inner_permit: sem.acquire_owned().await.unwrap(),
+        Ok(Self {
+            _inner_permit: sem
+                .acquire_owned()
+                .await
+                .map_err(|_| eyre!("Semaphore closed but requests still being serviced"))?,
             ports,
             port_number,
-        }
+        })
     }
 
     /// Fork a test onto a thread, which will drop the current permit when the test server exits
     async fn execute_test(self) {
         tokio::spawn(async move {
             // Start as server, one-off, with port, JSON output (in case client wants it maybe), and timeout if no one dials in in 10 seconds
-            let res = tokio::process::Command::new("iperf3")
+            match tokio::process::Command::new("iperf3")
                 .args(&[
                     "-s",
                     "-p",
@@ -82,15 +87,26 @@ impl TestPermit {
                 ])
                 .output()
                 .await
-                .unwrap(); // this only fails if the command failed to spawn for some reason, and the application should exit
-
-            if !res.status.success() {
-                let out_str = String::from_utf8_lossy(&res.stdout);
-                error!("Iperf server exited '{}', output follows", res.status);
-                error!("{out_str}");
-            } else {
-                debug!("Iperf server exited successfully!, output follows");
-                debug!("{}", String::from_utf8_lossy(&res.stdout));
+            {
+                Ok(iperf_result) => {
+                    if iperf_result.status.success() {
+                        debug!(
+                            iperf_stdout =
+                                String::from_utf8_lossy(&iperf_result.stdout).to_string()
+                        );
+                    } else {
+                        let out_str = String::from_utf8_lossy(&iperf_result.stdout);
+                        iperf_result.status.code().map_or_else(
+                            || {
+                                error!("Iperf killed by signal");
+                            },
+                            |exit_code| {
+                                error!(exit_code, "{out_str}");
+                            },
+                        );
+                    }
+                }
+                Err(exec_error) => error!("{exec_error}"),
             }
         });
     }
@@ -98,16 +114,15 @@ impl TestPermit {
 
 impl Drop for TestPermit {
     fn drop(&mut self) {
-        if !self
-            .ports
-            .lock()
-            .expect("TestPermit mutex poisoned")
-            .remove(&self.port_number)
-        {
-            error!(
-                "Attempted to drop port {} but it was not in the list?",
-                self.port_number
-            );
+        if let Ok(mut ports) = self.ports.lock() {
+            if !ports.remove(&self.port_number) {
+                error!(
+                    "Attempted to drop port {} but it was not in the list?",
+                    self.port_number
+                );
+            }
+        } else {
+            error!("Ports mutex held through panic");
         }
     }
 }
@@ -142,8 +157,7 @@ async fn main() -> Result<(), Report> {
     info!("Listening on {}", cfg.api_address);
     Server::bind(&cfg.api_address)
         .serve(app.into_make_service())
-        .await
-        .unwrap();
+        .await?;
 
     Ok(())
 }
@@ -152,11 +166,16 @@ async fn main() -> Result<(), Report> {
 async fn new_test(
     Json(request): Json<TestRequest>,
     Extension(state): Extension<Arc<State>>,
-) -> axum::response::Result<Json<TestReservation>, &'static str> {
+) -> axum::response::Result<Json<TestReservation>, StatusCode> {
     debug!("Client info: {request:#?}");
 
     // Acquire a test permit (this also ensures ports do not collide)
-    let test_permit = TestPermit::new(state.test_counter.clone(), state.active_ports.clone()).await;
+    let test_permit = TestPermit::new(state.test_counter.clone(), state.active_ports.clone())
+        .await
+        .map_err(|e| {
+            error!("Creating test permit failed with error {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     let port = test_permit.port_number;
 
     // Spawn iperf server into a thread
@@ -176,19 +195,16 @@ async fn port_in_use(port: u16) -> bool {
     match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
         Ok(_) => false,
         Err(e) => {
-            match e.kind() {
-                // std::io::ErrorKind::AddrInUse => todo!(),
-                std::io::ErrorKind::AlreadyExists => true,
-                _ => {
-                    error!("Port test failed with {e}");
-                    true
-                }
+            // Complain if it is not the error we expect
+            if e.kind() != std::io::ErrorKind::AlreadyExists {
+                error!("Port test failed with {e}");
             }
+            true
         }
     }
 }
 
-async fn _authenticate() {}
+//async fn _authenticate() {}
 
 fn setup() -> Result<(), Report> {
     // Load environment from .env if present for dev convenience
@@ -201,7 +217,7 @@ fn setup() -> Result<(), Report> {
 
     // For now, debug at top level and info for all other modules and crates. Will change to warning later
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "debug")
+        std::env::set_var("RUST_LOG", "info");
     }
     tracing_subscriber::fmt::fmt()
         .with_env_filter(EnvFilter::from_default_env())
