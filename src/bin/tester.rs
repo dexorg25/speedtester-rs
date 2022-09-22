@@ -53,6 +53,7 @@ enum SpeedtesterError {
     Io(std::io::Error),
     Parse(serde_json::Error),
     Http(reqwest::Error),
+    Config(String),
 }
 
 impl From<std::io::Error> for SpeedtesterError {
@@ -80,6 +81,7 @@ impl fmt::Display for SpeedtesterError {
             Self::Io(err) => write!(f, "IO Error: '{err}'"),
             Self::Parse(err) => write!(f, "Parser Error: '{err}'"),
             Self::Http(err) => write!(f, "HTTP Request Error: '{err}'"),
+            Self::Config(err) => write!(f, "Configuration Error: '{err}'"),
         }
     }
 }
@@ -133,7 +135,7 @@ async fn main() -> Result<()> {
 
                     // Execute the test, and if the process passed save the result
                     debug!("Spawning a test");
-                    tokio::spawn(async move {
+                    let exec = tokio::spawn(async move {
                         debug!("Spawned into a test");
                         match execute_test(http_client, &test_url).await {
                             Ok(report) => {
@@ -145,7 +147,7 @@ async fn main() -> Result<()> {
                                     )
                                     .await
                                 {
-                                    Ok(_rows) => {}
+                                    Ok(_rows) => Ok(()),
                                     Err(e) => {
                                         if e.is_closed() {
                                             warn!("DB connection closed");
@@ -158,12 +160,26 @@ async fn main() -> Result<()> {
                                                 error!("postgres error {e}");
                                             }
                                         }
+
+                                        // Database errors at this point might be recoverable by signing in again, kick an Err back up to make this happen
+                                        Err(e)
                                     }
                                 }
                             }
-                            Err(e) => error!("Test failed to start with error {e}"),
+                            // These errors are expected to be temporary, the server should gracefully handle this one way or another
+                            Err(e) => {
+                                error!("Test failed to start with error {e}");
+                                // No need to break to DB retry
+                                Ok(())
+                            }
                         }
                     });
+
+                    // If returned error, it's a DB error. save the error to tracing and break the loop to reconnect
+                    if let Ok(Err(db_error)) = exec.await {
+                        error!("Error: {db_error}, reconnect DB");
+                        break;
+                    }
                 }
             }
             Err(e) => {
@@ -198,43 +214,48 @@ async fn execute_test(
     let payload: TestRequest = TestRequest {
         client_name: "Hello From here!".into(),
     };
-    info!("Sending req body: {payload:?}");
-    let resp = client
+    debug!("Request test reservation");
+    let http_resp = client
         .post(test_host)
         .header("Content-Type", "application/json")
         .json(&payload)
         .send()
         .await?;
 
-    if resp.status() == StatusCode::OK {
-        let resp: TestReservation = resp.json().await?;
+    // Get the host out of the test_host URL
+    if let Some(iperf_host) = http_resp.url().host() {
+        let iperf_host = iperf_host.to_string();
+        if http_resp.status() == StatusCode::OK {
+            let resp: TestReservation = http_resp.json().await?;
+            debug!(iperf_host, resp.port_number);
 
-        debug!("Executing test to localhost at port {}", resp.port_number);
+            // Wait one second here for test host to get it's server up, then call iperf3 client
+            sleep(Duration::from_secs(1));
+            let handle = tokio::process::Command::new("iperf3")
+                .args(&["-c", &iperf_host, "-p", &resp.port_number.to_string(), "-J"])
+                .output()
+                .await?;
 
-        // Wait one second here for test host to get it's server up, then call iperf3 client
-        sleep(Duration::from_secs(1));
-        let handle = tokio::process::Command::new("iperf3")
-            .args(&["-c", "localhost", "-p", &resp.port_number.to_string(), "-J"])
-            .output()
-            .await?;
+            let test_report: TestResults = serde_json::from_slice(&handle.stdout).map_err(|e| {
+                let out_str = String::from_utf8_lossy(&handle.stdout);
+                error!("Failed to parse input report: '{out_str}'");
+                e
+            })?;
 
-        let test_report: TestResults = serde_json::from_slice(&handle.stdout).map_err(|e| {
-            let out_str = String::from_utf8_lossy(&handle.stdout);
-            error!("Failed to parse input report: '{out_str}'");
-            e
-        })?;
+            // Complain about errors, although the full report should be uploaded anyway
+            if let Some(msg) = &test_report.error {
+                warn!("Iperf test failed with error {}", msg);
+            }
 
-        // Complain about errors, although the full report should be uploaded anyway
-        if let Some(msg) = &test_report.error {
-            warn!("Iperf test failed with error {}", msg);
+            trace!(iperf_report = ?test_report);
+
+            Ok(test_report)
+        } else {
+            error!(test_host_response = ?http_resp);
+            Err(SpeedtesterError::TestHost(http_resp.text().await?))
         }
-
-        trace!(iperf_report = ?test_report);
-
-        Ok(test_report)
     } else {
-        error!(test_host_response = ?resp);
-        Err(SpeedtesterError::TestHost(resp.text().await?))
+        Err(SpeedtesterError::Config("URL Has no valid host".into()))
     }
 }
 
@@ -249,7 +270,7 @@ fn setup() -> Result<(), Report> {
 
     // For now, debug at top level and info for all other modules and crates. Will change to warning later
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "debug")
+        std::env::set_var("RUST_LOG", "info");
     }
     tracing_subscriber::fmt::fmt()
         .with_env_filter(EnvFilter::from_default_env())
