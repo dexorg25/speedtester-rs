@@ -184,7 +184,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Execute an iperf test against a remote endpoint running the test_host binary on the passed-in URL
+/// Execute an iperf test against a remote endpoint running the `test_host` binary on the passed-in URL
 /// The return will be Ok(..) if:
 ///  - The remote host accepted our test request
 ///  - The local iperf invocation returned _something_
