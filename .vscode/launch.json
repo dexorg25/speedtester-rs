@@ -25,24 +25,5 @@
                 "settings set target.disable-aslr false"
             ]
         },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'speedtester-rs'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=speedtester-rs",
-                    "--package=speedtester-rs"
-                ],
-                "filter": {
-                    "name": "speedtester-rs",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        }
     ]
 }

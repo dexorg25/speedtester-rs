@@ -72,12 +72,13 @@ pub struct IperfStart {
     pub version: String,
     pub system_info: String,
     pub timestamp: IperfTimestamp,
-    pub connecting_to: IperfHost,
+    /// Remote host, not present for server reports
+    pub connecting_to: Option<IperfHost>,
     pub cookie: String,
-    pub target_bitrate: u64,
-    pub sock_bufsize: u64,
-    pub sndbuf_actual: u32,
-    pub rcvbuf_actual: u32,
+    // pub target_bitrate: u64,
+    //pub sock_bufsize: u64,
+    // pub sndbuf_actual: u32,
+    // pub rcvbuf_actual: u32,
     pub test_start: IperfTestStart,
 }
 

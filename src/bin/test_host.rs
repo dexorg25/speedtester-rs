@@ -1,10 +1,16 @@
 use axum::{http::StatusCode, routing::post, Extension, Json, Router, Server};
 use color_eyre::{eyre::eyre, Report, Result};
 use rand::prelude::*;
-use speedtester_rs::api::{TestRequest, TestReservation};
+use speedtester_rs::{
+    api::{TestRequest, TestReservation},
+    iperf_reports::TestResults,
+};
 
+use sqlx::{Pool, Postgres};
 use std::{
     collections::HashSet,
+    future::Future,
+    marker::Send,
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
@@ -16,11 +22,6 @@ use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
-// new test
-//- spawn thread
-//- create iperf server ctx for one off
-//- reply to req with test info
-// ensure test is cleaned up
 
 // Constants
 const MAX_CONCURRENT_TESTS: usize = 10;
@@ -28,6 +29,7 @@ const MAX_CONCURRENT_TESTS: usize = 10;
 struct State {
     active_ports: Arc<Mutex<HashSet<u16>>>,
     test_counter: Arc<Semaphore>,
+    db_pool: Pool<Postgres>,
 }
 
 /// RAII based test permit to manage concurrency limit, and port collision mechanism
@@ -73,8 +75,12 @@ impl TestPermit {
     }
 
     /// Fork a test onto a thread, which will drop the current permit when the test server exits
-    async fn execute_test(self) {
+    async fn execute_test<T: Future<Output = ()> + Send>(
+        self,
+        output: impl FnOnce(TestResults) -> T + Send + 'static,
+    ) {
         tokio::spawn(async move {
+            debug!("Start iperf server");
             // Start as server, one-off, with port, JSON output (in case client wants it maybe), and timeout if no one dials in in 10 seconds
             match tokio::process::Command::new("iperf3")
                 .args(&[
@@ -84,16 +90,27 @@ impl TestPermit {
                     "-1",
                     "--idle-timeout",
                     "10",
+                    "-J",
                 ])
                 .output()
                 .await
             {
                 Ok(iperf_result) => {
                     if iperf_result.status.success() {
-                        debug!(
-                            iperf_stdout =
-                                String::from_utf8_lossy(&iperf_result.stdout).to_string()
-                        );
+                        match serde_json::from_slice(&iperf_result.stdout) {
+                            Ok(report) => {
+                                debug!("Call test result handler");
+                                output(report).await;
+                            }
+                            Err(parse_error) => {
+                                let parse_error = parse_error.to_string();
+                                error!(parse_error);
+                                debug!(
+                                    failed_parse =
+                                        String::from_utf8_lossy(&iperf_result.stdout).to_string(),
+                                );
+                            }
+                        }
                     } else {
                         let out_str = String::from_utf8_lossy(&iperf_result.stdout);
                         iperf_result.status.code().map_or_else(
@@ -101,12 +118,12 @@ impl TestPermit {
                                 error!("Iperf killed by signal");
                             },
                             |exit_code| {
-                                error!(exit_code, "{out_str}");
+                                error!(exit_code, output = out_str.to_string());
                             },
                         );
                     }
                 }
-                Err(exec_error) => error!("{exec_error}"),
+                Err(e) => error!(exec_error = e.to_string()),
             }
         });
     }
@@ -129,6 +146,9 @@ impl Drop for TestPermit {
 
 #[derive(Parser)]
 struct Config {
+    #[clap(env = "DATABASE_URL")]
+    db_url: String,
+
     #[clap(default_value = "0.0.0.0:8080", env = "HOST_ADDR")]
     api_address: SocketAddr,
 }
@@ -143,7 +163,11 @@ async fn main() -> Result<(), Report> {
     let state = Arc::new(State {
         active_ports: Arc::new(Mutex::new(HashSet::with_capacity(MAX_CONCURRENT_TESTS))),
         test_counter: Arc::new(Semaphore::new(MAX_CONCURRENT_TESTS)),
+        db_pool: sqlx::postgres::PgPool::connect(&cfg.db_url).await?,
     });
+
+    // Apply migrations
+    sqlx::migrate!().run(&state.db_pool).await?;
 
     //TODO: Auth layer
     let app = Router::new()
@@ -178,8 +202,22 @@ async fn new_test(
         })?;
     let port = test_permit.port_number;
 
-    // Spawn iperf server into a thread
-    test_permit.execute_test().await;
+    // Spawns iperf server into a thread with callback to act on the test report
+    test_permit
+        .execute_test(|r| async move {
+            if let Ok(report) = serde_json::to_value(r) {
+                match sqlx::query!("INSERT INTO packet_loss_tests (test) VALUES ($1)", report)
+                    .execute(&state.db_pool)
+                    .await
+                {
+                    Ok(_) => {}
+                    Err(query_error) => {
+                        error!("{query_error}");
+                    }
+                }
+            }
+        })
+        .await;
 
     // The client must give the server some time to initialize...
 

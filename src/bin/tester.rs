@@ -1,10 +1,9 @@
 use color_eyre::{Report, Result};
-use speedtester_rs::iperf_reports::TestResults;
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
 
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error};
 
 use core::fmt;
 use speedtester_rs::api::{TestRequest, TestReservation};
@@ -21,30 +20,6 @@ struct Config {
     /// Interval at which to run tests (in seconds)
     #[clap(short, default_value = "1", env = "INTERVAL")]
     interval: f32,
-
-    /// Database name
-    #[clap(env = "DBNAME")]
-    database: String,
-
-    /// Database Host  
-    #[clap(env = "DBHOST")]
-    dbhost: String,
-
-    /// Database User
-    #[clap(env = "DBUSER")]
-    dbuser: String,
-
-    /// Database password
-    #[clap(default_value = "", env = "DBPASS")]
-    dbpass: String,
-
-    /// Database port
-    #[clap(default_value = "5432", env = "DBPORT")]
-    dbport: u16,
-
-    /// Maximum DB retries
-    #[clap(default_value = "0", env = "MAX_DB_RETRIES")]
-    max_db_retries: u32,
 }
 
 #[derive(Debug)]
@@ -54,6 +29,7 @@ enum SpeedtesterError {
     Parse(serde_json::Error),
     Http(reqwest::Error),
     Config(String),
+    IperfFail(String),
 }
 
 impl From<std::io::Error> for SpeedtesterError {
@@ -82,6 +58,7 @@ impl fmt::Display for SpeedtesterError {
             Self::Parse(err) => write!(f, "Parser Error: '{err}'"),
             Self::Http(err) => write!(f, "HTTP Request Error: '{err}'"),
             Self::Config(err) => write!(f, "Configuration Error: '{err}'"),
+            Self::IperfFail(_err) => write!(f, "Iperf command failed to complete"),
         }
     }
 }
@@ -98,106 +75,40 @@ async fn main() -> Result<()> {
     let test_host = args.test_host;
 
     let test_url = test_host + "/api/v1/newtest";
-    let mut db_retry_counter: u32 = 0;
 
     // Construct HTTP client once for reuse between tests
     debug!("Create HTTP client");
     let http_client = std::sync::Arc::new(Client::new());
 
+    let mut sleep_timer = tokio::time::interval(Duration::from_secs_f32(args.interval));
+
+    // test driver loop
     loop {
-        let mut sleep_timer = tokio::time::interval(Duration::from_secs_f32(args.interval));
+        // Sleep the thread until it's time to run again
+        sleep_timer.tick().await;
 
-        // On successful connect, reset retry counter, else decrement
-        match connect_db(
-            &args.dbhost,
-            args.dbport,
-            &args.database,
-            &args.dbuser,
-            &args.dbpass,
-        )
-        .await
-        {
-            Ok(client) => {
-                // move into arc for async client execution ( makes load testing easy)
-                let client = std::sync::Arc::new(client);
-
-                db_retry_counter = 0;
-
-                // test driver loop
-                loop {
-                    // Sleep the thread until it's time to run again
-                    sleep_timer.tick().await;
-
-                    // Explicitly clone these ARCs before handing them to a client test executor
-                    let http_client = http_client.clone();
-                    let test_url = test_url.clone();
-                    let client = client.clone();
-
-                    // Execute the test, and if the process passed save the result
-                    debug!("Spawning a test");
-                    let exec = tokio::spawn(async move {
-                        debug!("Spawned into a test");
-                        match execute_test(http_client, &test_url).await {
-                            Ok(report) => {
-                                // Upload the full log, this binary is not concerned with much of anything in it beyond validation of the general structure
-                                match client
-                                    .execute(
-                                        "INSERT INTO packet_loss_tests_v2 (test) VALUES ($1)",
-                                        &[&tokio_postgres::types::Json(report)],
-                                    )
-                                    .await
-                                {
-                                    Ok(_rows) => Ok(()),
-                                    Err(e) => {
-                                        if e.is_closed() {
-                                            warn!("DB connection closed");
-                                        }
-                                        match e.as_db_error() {
-                                            None => {
-                                                error!("FATAL: Other DB error: {e}");
-                                            }
-                                            Some(e) => {
-                                                error!("postgres error {e}");
-                                            }
-                                        }
-
-                                        // Database errors at this point might be recoverable by signing in again, kick an Err back up to make this happen
-                                        Err(e)
-                                    }
-                                }
-                            }
-                            // These errors are expected to be temporary, the server should gracefully handle this one way or another
-                            Err(e) => {
-                                error!("Test failed to start with error {e}");
-                                // No need to break to DB retry
-                                Ok(())
-                            }
-                        }
-                    });
-
-                    // If returned error, it's a DB error. save the error to tracing and break the loop to reconnect
-                    if let Ok(Err(db_error)) = exec.await {
-                        error!("Error: {db_error}, reconnect DB");
-                        break;
-                    }
-                }
+        debug!("Spawning a test");
+        match execute_test(http_client.clone(), &test_url).await {
+            Ok(_) => {
+                // Given the test passed, there isn't anything to do on this end. Server now handles reporting
             }
+
+            // There are several reasons this might fail, some can be resolved with a retry but other errors will not resolve over time
+            // so the app should stop trying
             Err(e) => {
-                // Retry if retries are 0 or we have not exceeded the total
-                if (args.max_db_retries == 0) || (db_retry_counter <= args.max_db_retries) {
-                    db_retry_counter += 1;
-                    error!("Failed to connect to database with error {e}, retrying for the {db_retry_counter}th time...");
-                    tokio::time::sleep(Duration::from_secs(1)).await; // throttle retries some, this should keep this counter from ever rolling
-                } else {
-                    error!("DB Max Retries Exceeded");
-                    break;
+                use SpeedtesterError::{Config, Io};
+                match e {
+                    Io(_) | Config(_) => {
+                        error!("Unrecoverable Error, aborting");
+                        break Err(e.into());
+                    }
+                    _ => {
+                        error!("generic recoverable error '{e}', retry");
+                    }
                 }
             }
         }
     }
-
-    error!("DB Connect failed");
-    Ok(())
 }
 
 /// Execute an iperf test against a remote endpoint running the `test_host` binary on the passed-in URL
@@ -210,7 +121,7 @@ async fn main() -> Result<()> {
 async fn execute_test(
     client: std::sync::Arc<Client>,
     test_host: &str,
-) -> Result<TestResults, SpeedtesterError> {
+) -> Result<(), SpeedtesterError> {
     let payload: TestRequest = TestRequest {
         client_name: "Hello From here!".into(),
     };
@@ -231,25 +142,20 @@ async fn execute_test(
 
             // Wait one second here for test host to get it's server up, then call iperf3 client
             sleep(Duration::from_secs(1));
-            let handle = tokio::process::Command::new("iperf3")
-                .args(&["-c", &iperf_host, "-p", &resp.port_number.to_string(), "-J"])
+
+            // After iperf is launched this app is no longer concerned with it's operation, the output is not checked (although the status is)
+            let res = tokio::process::Command::new("iperf3")
+                .args(&["-c", &iperf_host, "-p", &resp.port_number.to_string(), "-u"])
                 .output()
                 .await?;
 
-            let test_report: TestResults = serde_json::from_slice(&handle.stdout).map_err(|e| {
-                let out_str = String::from_utf8_lossy(&handle.stdout);
-                error!("Failed to parse input report: '{out_str}'");
-                e
-            })?;
-
-            // Complain about errors, although the full report should be uploaded anyway
-            if let Some(msg) = &test_report.error {
-                warn!("Iperf test failed with error {}", msg);
+            if res.status.success() {
+                Ok(())
+            } else {
+                error!("iperf exited nonzero");
+                let output = String::from_utf8_lossy(&res.stdout).to_string();
+                Err(SpeedtesterError::IperfFail(output))
             }
-
-            trace!(iperf_report = ?test_report);
-
-            Ok(test_report)
         } else {
             error!(test_host_response = ?http_resp);
             Err(SpeedtesterError::TestHost(http_resp.text().await?))
@@ -277,47 +183,4 @@ fn setup() -> Result<(), Report> {
         .init();
 
     Ok(())
-}
-async fn connect_db(
-    host: &str,
-    port: u16,
-    database: &str,
-    user: &str,
-    pass: &str,
-) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
-    let (client, stream) = tokio_postgres::Config::new()
-        .application_name("speedtester-rs")
-        .host(host)
-        .port(port)
-        .user(user)
-        .password(pass)
-        .dbname(database)
-        .connect_timeout(Duration::from_secs(60))
-        .connect(tokio_postgres::NoTls)
-        .await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = stream.await {
-            // If the stream exited error, send the error trace so that logs will show why the DB connection closed
-            error!("Connection Error {e}");
-        }
-    });
-
-    info!("Connected to database {database} at {user}@{host}!");
-
-    // Make the table if not there
-    debug!("Create tables if not exist");
-    client
-        .execute(
-            "
-            CREATE TABLE IF NOT EXISTS packet_loss_tests_v2 (
-                ts      timestamptz PRIMARY KEY DEFAULT NOW(),
-                client_id INET NOT NULL DEFAULT inet_client_addr(),
-                test    jsonb NOT NULL
-            );
-            ",
-            &[],
-        )
-        .await?;
-    Ok(client)
 }
