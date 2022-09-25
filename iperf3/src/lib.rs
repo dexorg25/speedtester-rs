@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::error::Error;
+use std::ffi::{CStr, CString, NulError};
+use std::fmt::{self, Display};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IperfInterval {}
@@ -95,3 +98,265 @@ pub struct TestResults {
 
     pub error: Option<String>,
 }
+
+pub enum TestRole {
+    Client,
+    Server,
+}
+#[derive(Debug)]
+pub enum IperfError {
+    Alloc,
+    Args,
+}
+impl Display for IperfError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Error for IperfError {}
+
+mod iperf_bindings;
+
+pub struct IperfTest {
+    inner: *mut iperf_bindings::iperf_test,
+}
+
+impl IperfTest {
+    /// Create a new test context with default settings
+    ///
+    /// # Errors
+    /// Iperf internally allocates storage for this handle. `new` errors if this process fails due to (presumably) an allocation error
+    pub fn new() -> Result<Self, IperfError> {
+        unsafe {
+            let test = iperf_bindings::iperf_new_test();
+            if test.is_null() {
+                Err(IperfError::Alloc)
+            } else {
+                // Set defaults
+                iperf_bindings::iperf_defaults(test);
+                Ok(Self { inner: test })
+            }
+        }
+    }
+
+    /// Use this to configure the test client as if called from the command line
+    ///
+    /// This function also overrides json output formatting to true to enable returning `IperfTest` directly
+    ///
+    /// # Errors
+    /// If iperf's arguments are invalid it's internal error will be propagated
+    /// If any args are null, which cannot happen
+    ///
+    pub fn new_from_arguments<T, U>(args: T) -> Result<Self, Box<dyn Error>>
+    where
+        T: IntoIterator<Item = U>,
+        U: Into<Vec<u8>>,
+    {
+        let test = Self::new()?;
+
+        // Construct a temporary array of CStrings
+        let arg_buffer: Result<Vec<CString>, NulError> =
+            args.into_iter().map(|a| CString::new(a)).collect();
+
+        // rebind and early-return any error
+        let mut arg_buffer = arg_buffer?;
+
+        let mut arg_raw_ptrs: Vec<*mut i8> = arg_buffer
+            .iter_mut()
+            .map(|a| a.as_ptr() as *mut i8) // dependent lib uses a dumb signed string type
+            .collect();
+
+        let ret = unsafe {
+            iperf_bindings::iperf_parse_arguments(
+                test.inner,
+                arg_raw_ptrs.len().try_into()?,
+                arg_raw_ptrs.as_mut_ptr(),
+            )
+        };
+
+        if ret == 0 {
+            test.set_json_output(true);
+            Ok(test)
+        } else {
+            Err(Box::new(IperfError::Args))
+        }
+    }
+
+    pub fn set_verbose(&mut self, v: bool) {
+        unsafe {
+            iperf_bindings::iperf_set_verbose(self.inner, if v { 1 } else { 0 });
+        }
+    }
+
+    pub fn get_verbose(&mut self) -> bool {
+        unsafe { !matches!(iperf_bindings::iperf_get_verbose(self.inner), 0) }
+    }
+
+    pub fn get_control_socket(&mut self) -> i32 {
+        unsafe { iperf_bindings::iperf_get_control_socket(self.inner) }
+    }
+
+    pub fn get_omit(&mut self) -> i32 {
+        unsafe { iperf_bindings::iperf_get_test_omit(self.inner) }
+    }
+    pub fn get_duration(&mut self) -> i32 {
+        unsafe { iperf_bindings::iperf_get_test_duration(self.inner) }
+    }
+
+    /// Configure client or server operation
+    pub fn set_test_role(&mut self, role: &TestRole) {
+        unsafe {
+            match role {
+                TestRole::Client => iperf_bindings::iperf_set_test_role(self.inner, 'c' as i8),
+                TestRole::Server => iperf_bindings::iperf_set_test_role(self.inner, 's' as i8),
+            }
+        }
+    }
+
+    /// Set hostname (or IP?) of server
+    ///
+    /// # Panics
+    /// If there are null bytes in the host arg, this should be easy to avoid
+    #[allow(clippy::expect_used)]
+    pub fn set_test_server_hostname(&mut self, host: &str) {
+        unsafe {
+            let host: CString = CString::new(host).expect("null bytes in host");
+            iperf_bindings::iperf_set_test_server_hostname(self.inner, host.as_ptr());
+        }
+    }
+
+    /// Set port of server to connect to (default 5201)
+    pub fn set_test_server_port(&mut self, port: i32) {
+        unsafe {
+            iperf_bindings::iperf_set_test_server_port(self.inner, port);
+        }
+    }
+
+    pub fn set_test_omit(&mut self, omit: i32) {
+        unsafe {
+            iperf_bindings::iperf_set_test_omit(self.inner, omit);
+        }
+    }
+
+    /// Set the duration of the test in seconds
+    pub fn set_test_duration(&mut self, duration: i32) {
+        unsafe {
+            iperf_bindings::iperf_set_test_duration(self.inner, duration);
+        }
+    }
+
+    pub fn set_test_reporter_interval(&mut self, interval: f64) {
+        unsafe {
+            iperf_bindings::iperf_set_test_reporter_interval(self.inner, interval);
+        }
+    }
+    pub fn set_test_stats_interval(&mut self, interval: f64) {
+        unsafe {
+            iperf_bindings::iperf_set_test_stats_interval(self.inner, interval);
+        }
+    }
+
+    /// Run the client, and attempt to parse the results
+    ///
+    /// # Errors
+    /// - If iperf fails to run
+    /// - If the results from iperf fail to parse
+    pub fn run_client(&mut self) -> Result<TestResults, Box<dyn Error>> {
+        let res = unsafe { iperf_bindings::iperf_run_client(self.inner) };
+
+        if res < 0 {
+            Err(IperfFFIError::from(res).into())
+        } else {
+            let res = self.get_test_results()?;
+            Ok(res)
+        }
+    }
+
+    /// Run the test as a server (eventually, this should be in a different type)
+    ///
+    /// # Errors
+    /// If iperf experienced an error internally
+    pub fn run_server(&mut self) -> Result<(), IperfFFIError> {
+        let res = unsafe { iperf_bindings::iperf_run_server(self.inner) };
+
+        match res {
+            0 => Ok(()),
+            error_code => Err(error_code.into()),
+        }
+    }
+
+    /// Get the results from a completed test
+    ///
+    /// # Errors
+    /// - Internal iPerf errors
+    ///
+    /// # Panics
+    /// - If iperf returns a string with negative values
+    pub fn get_test_results(&self) -> Result<TestResults, Box<dyn Error>> {
+        let exec_output = unsafe {
+            // This is a ptr to local json string
+            let output = iperf_bindings::iperf_get_test_json_output_string(self.inner);
+
+            // If not null, then treat as a string (but just construct into a u8 byte slice for now)
+            // Since this is stored in an internal data structure, copy to an owned type
+            if output.is_null() {
+                Err("ptr for JSON results was NULL")
+            } else {
+                let mut len = 0;
+                let mut baseptr = output;
+                // Loop to calculate the length of this CString
+                loop {
+                    if *baseptr == 0 {
+                        break;
+                    }
+
+                    // Should not be negative values in here
+                    assert!(*baseptr >= 0, "negative value found in string");
+
+                    len += 1;
+                    // Check next byte
+                    baseptr = baseptr.add(1);
+                }
+                Ok(std::slice::from_raw_parts(output.cast::<u8>(), len))
+            }
+        }?;
+        Ok(serde_json::from_slice(exec_output)?)
+    }
+
+    pub fn set_json_output(&self, json: bool) {
+        unsafe { iperf_bindings::iperf_set_test_json_output(self.inner, if json { 1 } else { 0 }) }
+    }
+}
+
+impl Drop for IperfTest {
+    fn drop(&mut self) {
+        unsafe {
+            iperf_bindings::iperf_free_test(self.inner);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct IperfFFIError {
+    code: i32,
+}
+
+impl From<i32> for IperfFFIError {
+    fn from(code: i32) -> Self {
+        Self { code }
+    }
+}
+
+impl fmt::Display for IperfFFIError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // It should be safe to unwrap here, as we can be fairly certain this type is only created by valid producers
+        let error_message = unsafe {
+            CStr::from_ptr(iperf_bindings::iperf_strerror(self.code)).to_string_lossy()
+            // Go to an owned type, because this data is in a static buffer in the function
+        };
+        write!(f, "{}", error_message)
+    }
+}
+
+impl std::error::Error for IperfFFIError {}
