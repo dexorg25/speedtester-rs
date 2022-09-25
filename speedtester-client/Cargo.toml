@@ -1,0 +1,23 @@
+[package]
+name = "speedtester-client"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tracing = "0.1.36"
+tracing-subscriber = { version = "0.3.15", features = ["env-filter"] }
+iperf3 = { path = "../iperf3" }
+speedtester_server = { path = "../speedtester-server" }
+color-eyre = "0.6.2"
+clap = { version = "3.2.22", features = [
+    "env",
+    "unicode",
+    "derive",
+    "wrap_help",
+] }
+reqwest = { version = "0.11.12", features = ["json"] }
+serde_json = "1.0.85"
+tokio = { version = "1.21.1", features = ["full"] }
+dotenv = "0.15.0"

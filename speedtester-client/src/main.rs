@@ -6,7 +6,7 @@ use clap::Parser;
 use tracing::{debug, error};
 
 use core::fmt;
-use speedtester_rs::api::{TestRequest, TestReservation};
+use speedtester_server::{TestRequest, TestReservation};
 use std::thread::sleep;
 use std::time::Duration;
 

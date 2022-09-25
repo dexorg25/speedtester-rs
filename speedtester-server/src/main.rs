@@ -1,10 +1,8 @@
 use axum::{http::StatusCode, routing::post, Extension, Json, Router, Server};
 use color_eyre::{eyre::eyre, Report, Result};
+use iperf3::TestResults;
 use rand::prelude::*;
-use speedtester_rs::{
-    api::{TestRequest, TestReservation},
-    iperf_reports::TestResults,
-};
+use speedtester_server::{TestRequest, TestReservation};
 
 use sqlx::{Pool, Postgres};
 use std::{
