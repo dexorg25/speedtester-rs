@@ -2,6 +2,11 @@
 /* And then hand edited to remove unnecessary crap */
 #![allow(non_camel_case_types, dead_code)]
 
+// MANUALLY ADDED
+extern "C" {
+    pub fn iperf_set_test_idle_timeout(ipt: *mut iperf_test, to: ::std::os::raw::c_int);
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct iperf_test {

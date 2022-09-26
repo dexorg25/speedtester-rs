@@ -148,12 +148,12 @@ impl IperfTest {
     /// If iperf's arguments are invalid it's internal error will be propagated
     /// If any args are null, which cannot happen
     ///
-    pub fn new_from_arguments<T, U>(args: T) -> Result<Self, Box<dyn Error>>
+    pub fn new_from_arguments<T, U>(args: T) -> Result<Self, Box<dyn Error + Send + Sync>>
     where
         T: IntoIterator<Item = U>,
         U: Into<Vec<u8>>,
     {
-        let test = Self::new()?;
+        let mut test = Self::new()?;
 
         // Construct a temporary array of CStrings
         let arg_buffer: Result<Vec<CString>, NulError> =
@@ -162,16 +162,23 @@ impl IperfTest {
         // rebind and early-return any error
         let mut arg_buffer = arg_buffer?;
 
+        #[cfg(target_os = "macos")]
         let mut arg_raw_ptrs: Vec<*mut i8> = arg_buffer
             .iter_mut()
             .map(|a| a.as_ptr() as *mut i8) // dependent lib uses a dumb signed string type
+            .collect();
+
+        #[cfg(target_os = "linux")]
+        let mut arg_raw_ptrs: Vec<*mut u8> = arg_buffer
+            .iter_mut()
+            .map(|a| a.as_ptr() as *mut u8) // dependent lib uses a dumb signed string type
             .collect();
 
         let ret = unsafe {
             iperf_bindings::iperf_parse_arguments(
                 test.inner,
                 arg_raw_ptrs.len().try_into()?,
-                arg_raw_ptrs.as_mut_ptr(),
+                arg_raw_ptrs.as_mut_ptr() as *mut *mut i8,
             )
         };
 
@@ -200,16 +207,26 @@ impl IperfTest {
     pub fn get_omit(&mut self) -> i32 {
         unsafe { iperf_bindings::iperf_get_test_omit(self.inner) }
     }
+
+    /// Get the configured test duration
+    ///
+    /// # Panics
+    /// - If the underlying test duratoin cannot be converted to u32 (IE if it is negative)
     pub fn get_duration(&mut self) -> i32 {
         unsafe { iperf_bindings::iperf_get_test_duration(self.inner) }
     }
 
     /// Configure client or server operation
-    pub fn set_test_role(&mut self, role: &TestRole) {
+    pub fn set_role(&mut self, role: &TestRole) {
         unsafe {
             match role {
-                TestRole::Client => iperf_bindings::iperf_set_test_role(self.inner, 'c' as i8),
-                TestRole::Server => iperf_bindings::iperf_set_test_role(self.inner, 's' as i8),
+                TestRole::Client => {
+                    iperf_bindings::iperf_set_test_role(self.inner, 'c' as std::os::raw::c_char);
+                }
+
+                TestRole::Server => {
+                    iperf_bindings::iperf_set_test_role(self.inner, 's' as std::os::raw::c_char);
+                }
             }
         }
     }
@@ -227,7 +244,7 @@ impl IperfTest {
     }
 
     /// Set port of server to connect to (default 5201)
-    pub fn set_test_server_port(&mut self, port: i32) {
+    pub fn set_server_port(&mut self, port: i32) {
         unsafe {
             iperf_bindings::iperf_set_test_server_port(self.inner, port);
         }
@@ -262,7 +279,7 @@ impl IperfTest {
     /// # Errors
     /// - If iperf fails to run
     /// - If the results from iperf fail to parse
-    pub fn run_client(&mut self) -> Result<TestResults, Box<dyn Error>> {
+    pub fn run_client(&mut self) -> Result<TestResults, Box<dyn Error + Send + Sync>> {
         let res = unsafe { iperf_bindings::iperf_run_client(self.inner) };
 
         if res < 0 {
@@ -276,13 +293,16 @@ impl IperfTest {
     /// Run the test as a server (eventually, this should be in a different type)
     ///
     /// # Errors
-    /// If iperf experienced an error internally
-    pub fn run_server(&mut self) -> Result<(), IperfFFIError> {
+    /// - If iperf experienced an error internally
+    /// - Server output fails to parse
+    pub fn run_server(&mut self) -> Result<TestResults, Box<dyn Error + Send + Sync>> {
         let res = unsafe { iperf_bindings::iperf_run_server(self.inner) };
 
-        match res {
-            0 => Ok(()),
-            error_code => Err(error_code.into()),
+        if res == 0 {
+            let res = self.get_test_results()?;
+            Ok(res)
+        } else {
+            Err(Box::new(IperfFFIError::from(res)))
         }
     }
 
@@ -293,7 +313,7 @@ impl IperfTest {
     ///
     /// # Panics
     /// - If iperf returns a string with negative values
-    pub fn get_test_results(&self) -> Result<TestResults, Box<dyn Error>> {
+    pub fn get_test_results(&self) -> Result<TestResults, Box<dyn Error + Send + Sync>> {
         let exec_output = unsafe {
             // This is a ptr to local json string
             let output = iperf_bindings::iperf_get_test_json_output_string(self.inner);
@@ -311,7 +331,8 @@ impl IperfTest {
                         break;
                     }
 
-                    // Should not be negative values in here
+                    // Necessary because at time of writing macos C Int type is signed???
+                    #[cfg(target_os = "macos")]
                     assert!(*baseptr >= 0, "negative value found in string");
 
                     len += 1;
@@ -324,8 +345,35 @@ impl IperfTest {
         Ok(serde_json::from_slice(exec_output)?)
     }
 
-    pub fn set_json_output(&self, json: bool) {
+    pub fn set_one_off(&mut self, one_off: bool) {
+        unsafe {
+            iperf_bindings::iperf_set_test_one_off(self.inner, if one_off { 1 } else { 0 });
+        }
+    }
+
+    #[must_use]
+    pub fn get_one_off(&self) -> bool {
+        unsafe { iperf_bindings::iperf_get_test_one_off(self.inner) == 1 }
+    }
+
+    pub fn set_json_output(&mut self, json: bool) {
         unsafe { iperf_bindings::iperf_set_test_json_output(self.inner, if json { 1 } else { 0 }) }
+    }
+
+    /// Set test idle timeout
+    ///
+    /// Internally this only uses seconds so the granularity is not as small as suggested by the arg type.
+    ///
+    /// # Panics
+    /// - if the integer seconds representation does not fit into an i32
+    #[allow(clippy::expect_used)]
+    pub fn set_idle_timeout(&mut self, timeout: std::time::Duration) {
+        unsafe {
+            iperf_bindings::iperf_set_test_idle_timeout(
+                self.inner,
+                timeout.as_secs().try_into().expect("timeout too big"),
+            );
+        }
     }
 }
 
@@ -340,11 +388,15 @@ impl Drop for IperfTest {
 #[derive(Debug)]
 pub struct IperfFFIError {
     code: i32,
+    _message: Option<String>,
 }
 
 impl From<i32> for IperfFFIError {
     fn from(code: i32) -> Self {
-        Self { code }
+        Self {
+            code,
+            _message: None,
+        }
     }
 }
 

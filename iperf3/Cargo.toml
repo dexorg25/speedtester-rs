@@ -4,6 +4,9 @@ description = "iperf types (and eventually implementation)"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.system-deps]
+openssl = "*"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -13,3 +16,4 @@ autotools = "0.2.5"
 
 [build-dependencies]
 autotools = "0.2.5"
+system-deps = "6.0.0"
