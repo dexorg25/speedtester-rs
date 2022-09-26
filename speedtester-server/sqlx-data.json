@@ -1,0 +1,15 @@
+{
+  "db": "PostgreSQL",
+  "94e4419745ab98fe9b6e498abc923c02746ee768dfc87fb11d12915693439d0a": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "INSERT INTO packet_loss_tests (test) VALUES ($1)"
+  }
+}
