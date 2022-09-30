@@ -5,6 +5,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[profile.release]
+lto = true
+
 [dependencies]
 axum = "0.5.7"
 axum-macros = "0.2.2"
@@ -13,6 +16,7 @@ clap = { version = "3.1.5", features = [
     "unicode",
     "derive",
     "wrap_help",
+    "deprecated",
 ] }
 color-eyre = "0.6.1"
 dotenv = "0.15.0"

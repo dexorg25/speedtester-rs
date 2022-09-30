@@ -1,38 +1,27 @@
-# Start with a rust base, to compile the application for deployment before building the runtime image
-FROM rust:1.64.0-slim-bullseye AS builder
+# Start with a rust base, to compile the application for deployment
+FROM rust:alpine AS builder
 
-WORKDIR /app
+# Add deps for build (everything is linked static)
+RUN apk add musl-dev make pkgconfig perl
+
+WORKDIR /src/
 COPY . .
-RUN --mount=type=cache,target=/app/target \
+
+# If rustup components are to be added then this should be restored
+# --mount=type=cache,target=/usr/local/rustup \
+
+# Cache build folders, build, and then compress the debug sections
+RUN --mount=type=cache,target=/src/target \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/usr/local/rustup \
     set -eux; \
-    export DEBIAN_FRONTEND=noninteractive; \
-    apt update; \
-    apt install --yes --no-install-recommends libssl-dev pkg-config build-essential; \
-    rustup install stable; 
+    cargo install --path speedtester-server; \
+    objcopy --compress-debug-sections /usr/local/cargo/bin/speedtester_server ./speedtester_server; \
+    mv ./speedtester_server /usr/local/cargo/bin/speedtester_server
 
-RUN --mount=type=cache,target=/app/target \
-    --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/usr/local/rustup \
-    set -eux; \
-    cargo build --release --package speedtester_server; \
-    objcopy --compress-debug-sections target/release/speedtester_server ./speedtester_server
+FROM alpine
 
-FROM debian:11.3-slim
+COPY --from=builder /usr/local/cargo/bin/speedtester_server /usr/local/bin/speedtester_server
 
-# RUN set -eux; \
-#     export DEBIAN_FRONTEND=noninteractive; \
-#     apt clean autoclean; \
-#     apt autoremove --yes; \
-#     rm -rf /var/lib/{apt,dpkg,cache,log}/; \
-#     echo "Installed base utils!"
-
-WORKDIR /app
-
-COPY --from=builder /app/speedtester_server ./speedtester_server
-
-CMD ["./speedtester_server"]
+CMD ["speedtester_server"]
 

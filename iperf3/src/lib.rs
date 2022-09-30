@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::{CStr, CString, NulError};
 use std::fmt::{self, Display};
+use std::path::Path;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IperfInterval {}
@@ -162,23 +163,18 @@ impl IperfTest {
         // rebind and early-return any error
         let mut arg_buffer = arg_buffer?;
 
-        #[cfg(target_os = "macos")]
-        let mut arg_raw_ptrs: Vec<*mut i8> = arg_buffer
+        let mut arg_raw_ptrs: Vec<*mut std::os::raw::c_char> = arg_buffer
             .iter_mut()
-            .map(|a| a.as_ptr() as *mut i8) // dependent lib uses a dumb signed string type
-            .collect();
-
-        #[cfg(target_os = "linux")]
-        let mut arg_raw_ptrs: Vec<*mut u8> = arg_buffer
-            .iter_mut()
-            .map(|a| a.as_ptr() as *mut u8) // dependent lib uses a dumb signed string type
+            .map(|a| a.as_ptr() as *mut std::os::raw::c_char) // dependent lib uses a dumb signed string type
             .collect();
 
         let ret = unsafe {
             iperf_bindings::iperf_parse_arguments(
                 test.inner,
                 arg_raw_ptrs.len().try_into()?,
-                arg_raw_ptrs.as_mut_ptr() as *mut *mut i8,
+                arg_raw_ptrs
+                    .as_mut_ptr()
+                    .cast::<*mut std::os::raw::c_char>(),
             )
         };
 
@@ -374,6 +370,19 @@ impl IperfTest {
                 timeout.as_secs().try_into().expect("timeout too big"),
             );
         }
+    }
+
+    /// Set log file
+    /// Usually just set this to /dev/null to keep iperf from doing shit on stdout
+    ///
+    /// # Panics
+    /// If path is not valid unicode or contains NUL characters
+    #[allow(clippy::expect_used)]
+    pub fn set_log_file(&mut self, log_file: &Path) {
+        let path_str = log_file.to_str().expect("Path is not valid unicode");
+        let path_str = CString::new(path_str).expect("path contained NULLs");
+
+        unsafe { iperf_bindings::iperf_set_test_logfile(self.inner, path_str.as_ptr()) }
     }
 }
 
