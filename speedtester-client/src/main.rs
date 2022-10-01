@@ -136,7 +136,7 @@ async fn execute_test(
     let http_resp = client
         .post(test_host)
         .header("Content-Type", "application/json")
-        .header("token", api_token)
+        .header("Authorization", api_token)
         .json(&payload)
         .send()
         .await?;
@@ -156,6 +156,15 @@ async fn execute_test(
                 .args(&["-c", &iperf_host, "-p", &resp.port_number.to_string(), "-u"])
                 .output()
                 .await?;
+
+            let mut test = iperf3::IperfTest::new()
+                .map_err(|_| SpeedtesterError::IperfFail("allocation error".to_string()))?;
+
+            test.set_server_port(resp.port_number.try_into().map_err(|_| {
+                SpeedtesterError::IperfFail("Illegal port number passed".to_string())
+            })?);
+            test.set_test_server_hostname(&iperf_host);
+            test.set_protocol
 
             if res.status.success() {
                 Ok(())
