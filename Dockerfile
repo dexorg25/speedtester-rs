@@ -1,8 +1,9 @@
 # Start with a rust base, to compile the application for deployment
 FROM rust:alpine AS builder
 
-# Add deps for build (everything is linked static)
-RUN apk add musl-dev make pkgconfig perl
+# Add deps for build (everything is linked static so these can be installed in builder only)
+# But we still need openssl-dev for headers. the dynamic libs 
+RUN apk add musl-dev make pkgconfig openssl-dev openssl-libs-static
 
 WORKDIR /src/
 COPY . .

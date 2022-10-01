@@ -1,4 +1,10 @@
-use axum::{http::StatusCode, routing::post, Extension, Json, Router, Server};
+use axum::{
+    http::{Request, StatusCode},
+    middleware::Next,
+    response::Response,
+    routing::post,
+    Extension, Json, Router, Server,
+};
 use color_eyre::{eyre::eyre, Report};
 use iperf3::TestResults;
 use rand::prelude::*;
@@ -18,7 +24,7 @@ use tokio::sync::Semaphore;
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, log::warn};
 use tracing_subscriber::EnvFilter;
 
 // Constants
@@ -98,6 +104,7 @@ impl TestPermit {
             server.set_one_off(true);
             server.set_idle_timeout(std::time::Duration::from_secs(10));
             server.set_json_output(true);
+            server.set_log_file(std::path::Path::new("/dev/null"));
 
             // TODO: an iperf sentinel worker that through some scheme notifies us when iperf is up and ready to receive connections
 
@@ -154,7 +161,8 @@ async fn main() -> Result<(), Report> {
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(Extension(state)),
+                .layer(Extension(state))
+                .layer(axum::middleware::from_fn(authenticate)),
         );
 
     info!("Listening on {}", cfg.api_address);
@@ -163,6 +171,28 @@ async fn main() -> Result<(), Report> {
         .await?;
 
     Ok(())
+}
+
+/// Authenticate against the state in the DB, using passed token header
+async fn authenticate<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode>
+where
+    B: Send + Sync,
+{
+    if let Some(token) = req.headers().get("Authorization") {
+        match token.to_str() {
+            Ok(token) => {
+                warn!("Fake auth passes against token: {token}");
+                //TODO: fetch the client object by token from DB and then give it to the next layer
+                Ok(next.run(req).await)
+            }
+            Err(e) => {
+                error!("Auth token contained non-ascii chars: '{e}'");
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
 }
 
 #[axum_macros::debug_handler]

@@ -15,8 +15,14 @@ use reqwest::StatusCode;
 
 #[derive(Parser)]
 struct Config {
+    // URL for test host API (reused for iperf endpoint too)
     #[clap(env = "TEST_HOST")]
     test_host: String,
+
+    /// Authentication token passed in header to access service
+    #[clap(env = "API_TOKEN")]
+    api_token: String,
+
     /// Interval at which to run tests (in seconds)
     #[clap(short, default_value = "1", env = "INTERVAL")]
     interval: f32,
@@ -88,7 +94,7 @@ async fn main() -> Result<()> {
         sleep_timer.tick().await;
 
         debug!("Spawning a test");
-        match execute_test(http_client.clone(), &test_url).await {
+        match execute_test(http_client.clone(), &test_url, &args.api_token).await {
             Ok(_) => {
                 // Given the test passed, there isn't anything to do on this end. Server now handles reporting
             }
@@ -121,14 +127,16 @@ async fn main() -> Result<()> {
 async fn execute_test(
     client: std::sync::Arc<Client>,
     test_host: &str,
+    api_token: &str,
 ) -> Result<(), SpeedtesterError> {
     let payload: TestRequest = TestRequest {
-        client_name: "Hello From here!".into(),
+        client_name: "Hello!".into(),
     };
     debug!("Request test reservation");
     let http_resp = client
         .post(test_host)
         .header("Content-Type", "application/json")
+        .header("token", api_token)
         .json(&payload)
         .send()
         .await?;
@@ -176,7 +184,7 @@ fn setup() -> Result<(), Report> {
 
     // For now, debug at top level and info for all other modules and crates. Will change to warning later
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
+        std::env::set_var("RUST_LOG", "debug");
     }
     tracing_subscriber::fmt::fmt()
         .with_env_filter(EnvFilter::from_default_env())
