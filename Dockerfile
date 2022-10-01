@@ -12,17 +12,18 @@ COPY . .
 # --mount=type=cache,target=/usr/local/rustup \
 
 # Cache build folders, build, and then compress the debug sections
+ENV RUSTFLAGS='-C target-feature=+crt-static'
 RUN --mount=type=cache,target=/src/target \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     set -eux; \
-    cargo install --path speedtester-server; \
+    cargo install --path speedtester-server --target x86_64-unknown-linux-musl; \
     objcopy --compress-debug-sections /usr/local/cargo/bin/speedtester_server ./speedtester_server; \
     mv ./speedtester_server /usr/local/cargo/bin/speedtester_server
 
-FROM alpine
+FROM scratch
 
-COPY --from=builder /usr/local/cargo/bin/speedtester_server /usr/local/bin/speedtester_server
+COPY --from=builder /usr/local/cargo/bin/speedtester_server /speedtester_server
 
-CMD ["speedtester_server"]
+CMD ["/speedtester_server"]
 
