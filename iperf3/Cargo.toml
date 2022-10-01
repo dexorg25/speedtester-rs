@@ -17,3 +17,4 @@ autotools = "0.2.5"
 [build-dependencies]
 autotools = "0.2.5"
 system-deps = "6.0"
+bindgen = "*"

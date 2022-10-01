@@ -384,6 +384,16 @@ impl IperfTest {
 
         unsafe { iperf_bindings::iperf_set_test_logfile(self.inner, path_str.as_ptr()) }
     }
+
+    /// Set the test protocol (useful for client)
+    pub fn set_protocol(&mut self, proto: Proto) {
+        let proto = match proto {
+            Tcp => iperf_bindings::ty
+        }
+        unsafe {
+            // iperf_bindings
+        }
+    }
 }
 
 impl Drop for IperfTest {
@@ -392,6 +402,11 @@ impl Drop for IperfTest {
             iperf_bindings::iperf_free_test(self.inner);
         }
     }
+}
+
+pub enum Proto {
+    Tcp,
+    Udp,
 }
 
 #[derive(Debug)]
