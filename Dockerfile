@@ -3,7 +3,7 @@ FROM rust:alpine AS builder
 
 # Add deps for build (everything is linked static so these can be installed in builder only)
 # But we still need openssl-dev for headers. the dynamic libs 
-RUN apk add musl-dev make pkgconfig openssl-dev openssl-libs-static
+RUN apk add musl-dev make pkgconfig openssl-dev openssl-libs-static iperf3-dev
 
 WORKDIR /src/
 COPY . .
