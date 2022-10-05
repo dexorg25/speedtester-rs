@@ -3,11 +3,7 @@ use std::path::PathBuf;
 
 use autotools::Config;
 
-#[allow(clippy::unwrap_used)]
-fn main() {
-    // Openssl included with pkg config
-    system_deps::Config::new().probe().unwrap();
-
+fn vendor_iperf() {
     // Compile iperf as a static lib, could probably pass some parameters to prune this
     let dst = Config::new("iperf")
         .enable_static()
@@ -20,11 +16,18 @@ fn main() {
 
     // Add static library+deps to link list
     println!("cargo:rustc-link-lib=static=iperf");
+}
+#[allow(clippy::unwrap_used)]
+fn main() {
+    // Openssl included with pkg config
+    system_deps::Config::new().probe().unwrap();
+
+    vendor_iperf();
 
     // Generate bindings
     let bindings = bindgen::builder();
     bindings
-        .header("iperf/src/iperf_api.h")
+        .header("src/iperf_api.h")
         .allowlist_function("iperf_*|set_protocol|get_protocol")
         .allowlist_type("iperf_*")
         .allowlist_var("SOCK_STREAM|SOCK_DATAGRAM")

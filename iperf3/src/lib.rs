@@ -365,7 +365,7 @@ impl IperfTest {
     #[allow(clippy::expect_used)]
     pub fn set_idle_timeout(&mut self, timeout: std::time::Duration) {
         unsafe {
-            iperf_bindings::iperf_set_test_idle_timeout(
+            iperf_bindings::iperf_set_test_connect_timeout(
                 self.inner,
                 timeout.as_secs().try_into().expect("timeout too big"),
             );
@@ -386,12 +386,14 @@ impl IperfTest {
     }
 
     /// Set the test protocol (useful for client)
-    pub fn set_protocol(&mut self, proto: Proto) {
+    pub fn set_protocol(&mut self, proto: &Proto) {
         let proto = match proto {
-            Tcp => iperf_bindings::ty
-        }
+            Proto::Tcp => libc::SOCK_STREAM,
+            Proto::Udp => libc::SOCK_DGRAM,
+        };
         unsafe {
             // iperf_bindings
+            iperf_bindings::set_protocol(self.inner, proto);
         }
     }
 }

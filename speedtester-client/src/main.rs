@@ -148,30 +148,34 @@ async fn execute_test(
             let resp: TestReservation = http_resp.json().await?;
             debug!(iperf_host, resp.port_number);
 
-            // Wait one second here for test host to get it's server up, then call iperf3 client
-            sleep(Duration::from_secs(1));
+            let result = tokio::task::spawn_blocking(
+                move || -> Result<iperf3::TestResults, Box<dyn std::error::Error + Send + Sync>> {
+                    // Wait one second here for test host to get it's server up, then call iperf3 client
+                    sleep(Duration::from_secs(1));
 
-            // After iperf is launched this app is no longer concerned with it's operation, the output is not checked (although the status is)
-            let res = tokio::process::Command::new("iperf3")
-                .args(&["-c", &iperf_host, "-p", &resp.port_number.to_string(), "-u"])
-                .output()
-                .await?;
+                    // Init test context using FFI bindings to libiperf and configure the test that way instead of shelling out
+                    let mut test = iperf3::IperfTest::new()
+                        .map_err(|_| SpeedtesterError::IperfFail("allocation error".to_string()))?;
 
-            let mut test = iperf3::IperfTest::new()
-                .map_err(|_| SpeedtesterError::IperfFail("allocation error".to_string()))?;
+                    test.set_server_port(resp.port_number.try_into().map_err(|_| {
+                        SpeedtesterError::IperfFail("Illegal port number passed".to_string())
+                    })?);
+                    test.set_test_server_hostname(&iperf_host);
+                    test.set_protocol(&iperf3::Proto::Udp);
 
-            test.set_server_port(resp.port_number.try_into().map_err(|_| {
-                SpeedtesterError::IperfFail("Illegal port number passed".to_string())
-            })?);
-            test.set_test_server_hostname(&iperf_host);
-            test.set_protocol
+                    // Run the client, parsing and returning result struct
+                    test.run_client()
+                },
+            );
 
-            if res.status.success() {
-                Ok(())
-            } else {
-                error!("iperf exited nonzero");
-                let output = String::from_utf8_lossy(&res.stdout).to_string();
-                Err(SpeedtesterError::IperfFail(output))
+            match result.await {
+                Err(_) => Err(SpeedtesterError::IperfFail(
+                    "Iperf thread panic!".to_owned(),
+                )),
+                Ok(res) => match res {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(SpeedtesterError::IperfFail(format!("{e}"))),
+                },
             }
         } else {
             error!(test_host_response = ?http_resp);
