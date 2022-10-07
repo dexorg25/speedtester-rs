@@ -15,8 +15,8 @@ libc = "0.2.134"
 pkg-config = "0.3.25"
 autotools = "0.2.5"
 openssl-src = { version = "300.0.9", optional = true }
-bindgen = "0.60.1"
+iperf3-src = { git = "https://github.com/derekw023/iperf3-src", optional = true }
 
 
 [features]
-allow_vendoring = ["dep:openssl-src"]
+allow_vendoring = ["dep:openssl-src", "dep:iperf3-src"]
