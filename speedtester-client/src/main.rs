@@ -6,7 +6,7 @@ use clap::Parser;
 use tracing::{debug, error};
 
 use core::fmt;
-use speedtester_server::{TestRequest, TestReservation};
+use speedtester_server::TestReservation;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -129,15 +129,11 @@ async fn execute_test(
     test_host: &str,
     api_token: &str,
 ) -> Result<(), SpeedtesterError> {
-    let payload: TestRequest = TestRequest {
-        client_name: "Hello!".into(),
-    };
     debug!("Request test reservation");
     let http_resp = client
         .post(test_host)
         .header("Content-Type", "application/json")
         .header("Authorization", api_token)
-        .json(&payload)
         .send()
         .await?;
 
@@ -168,15 +164,17 @@ async fn execute_test(
                 },
             );
 
-            match result.await {
-                Err(_) => Err(SpeedtesterError::IperfFail(
-                    "Iperf thread panic!".to_owned(),
-                )),
-                Ok(res) => match res {
+            (result.await).map_or_else(
+                |_| {
+                    Err(SpeedtesterError::IperfFail(
+                        "Iperf thread panic!".to_owned(),
+                    ))
+                },
+                |res| match res {
                     Ok(_) => Ok(()),
                     Err(e) => Err(SpeedtesterError::IperfFail(format!("{e}"))),
                 },
-            }
+            )
         } else {
             error!(test_host_response = ?http_resp);
             Err(SpeedtesterError::TestHost(http_resp.text().await?))

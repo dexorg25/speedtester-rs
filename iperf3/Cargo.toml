@@ -15,7 +15,8 @@ libc = "0.2.134"
 pkg-config = "0.3.25"
 autotools = "0.2.5"
 openssl-src = { version = "300.0.9", optional = true }
-iperf3-src = { git = "https://github.com/derekw023/iperf3-src", optional = true }
+# iperf3-src = { git = "https://github.com/derekw023/iperf3-src", optional = true }
+iperf3-src = { path = "../../iperf3-src", optional = true }
 
 
 [features]

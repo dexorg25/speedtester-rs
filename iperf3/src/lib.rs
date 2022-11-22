@@ -111,7 +111,7 @@ pub enum IperfError {
 }
 impl Display for IperfError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -149,6 +149,7 @@ impl IperfTest {
     /// If iperf's arguments are invalid it's internal error will be propagated
     /// If any args are null, which cannot happen
     ///
+    #[allow(clippy::as_ptr_cast_mut)]
     pub fn new_from_arguments<T, U>(args: T) -> Result<Self, Box<dyn Error + Send + Sync>>
     where
         T: IntoIterator<Item = U>,
@@ -188,7 +189,7 @@ impl IperfTest {
 
     pub fn set_verbose(&mut self, v: bool) {
         unsafe {
-            iperf_bindings::iperf_set_verbose(self.inner, if v { 1 } else { 0 });
+            iperf_bindings::iperf_set_verbose(self.inner, v.into());
         }
     }
 
@@ -343,7 +344,7 @@ impl IperfTest {
 
     pub fn set_one_off(&mut self, one_off: bool) {
         unsafe {
-            iperf_bindings::iperf_set_test_one_off(self.inner, if one_off { 1 } else { 0 });
+            iperf_bindings::iperf_set_test_one_off(self.inner, one_off.into());
         }
     }
 
@@ -353,7 +354,7 @@ impl IperfTest {
     }
 
     pub fn set_json_output(&mut self, json: bool) {
-        unsafe { iperf_bindings::iperf_set_test_json_output(self.inner, if json { 1 } else { 0 }) }
+        unsafe { iperf_bindings::iperf_set_test_json_output(self.inner, json.into()) }
     }
 
     /// Set test idle timeout
@@ -433,7 +434,7 @@ impl fmt::Display for IperfFFIError {
             CStr::from_ptr(iperf_bindings::iperf_strerror(self.code)).to_string_lossy()
             // Go to an owned type, because this data is in a static buffer in the function
         };
-        write!(f, "{}", error_message)
+        write!(f, "{error_message}")
     }
 }
 

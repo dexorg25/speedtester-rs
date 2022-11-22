@@ -1,18 +1,17 @@
 use axum::{
+    body::Body,
     http::{Request, StatusCode},
-    middleware::Next,
-    response::Response,
     routing::post,
     Extension, Json, Router, Server,
 };
-use color_eyre::{eyre::eyre, Report};
+use color_eyre::Report;
 use iperf3::TestResults;
 use rand::prelude::*;
-use speedtester_server::{TestRequest, TestReservation};
+use speedtester_server::TestReservation;
 
 use clap::Parser;
 use iperf3::IperfTest;
-use sqlx::{postgres::PgQueryResult, Pool, Postgres};
+use sqlx::{postgres::PgQueryResult, query, Pool, Postgres};
 use std::{
     collections::HashSet,
     error::Error,
@@ -24,7 +23,7 @@ use tokio::sync::Semaphore;
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error, info, log::warn};
+use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 
 // Constants
@@ -44,12 +43,24 @@ struct TestPermit {
     port_number: u16,
 }
 
+#[derive(Debug)]
+pub enum TestPermitError {
+    Unauthorized,
+    MutexPoisoned,
+    SemaphorePoisoned,
+}
+
 impl TestPermit {
     // Get a random port from the pool that's not already in use, and return it with the semaphore guard
-    async fn new(
-        sem: Arc<Semaphore>,
-        ports: Arc<Mutex<HashSet<u16>>>,
-    ) -> Result<Self, Box<dyn Error>> {
+    async fn new(state: &State, token: &str) -> Result<Self, TestPermitError> {
+        // perform authentication by searching for a matching user record
+        let records = query!(
+            "SELECT * FROM registered_clients WHERE client_token = {};",
+            token
+        )
+        .fetch_optional
+        .await;
+
         // Small loop to generate a new, free port for iperf to bind to
         let port_number = {
             loop {
@@ -60,9 +71,10 @@ impl TestPermit {
                 //   (say this runs something else after one of these awaits and that something else is another test request)
                 //   then if there were no hash set check, two test requests could be created with the same port number and one of the iperfs might fail
                 if !port_in_use(port).await {
-                    let mut ports_guard = ports
+                    let mut ports_guard = state
+                        .active_ports
                         .lock()
-                        .map_err(|_| eyre!("Other worker panicked with mutex"))?;
+                        .map_err(|_| TestPermitError::MutexPoisoned)?;
                     if !ports_guard.contains(&port) {
                         ports_guard.insert(port);
                         break port;
@@ -72,11 +84,13 @@ impl TestPermit {
         };
         // Iperf concurrency limit is ensured here
         Ok(Self {
-            _inner_permit: sem
+            _inner_permit: state
+                .test_counter
+                .clone()
                 .acquire_owned()
                 .await
-                .map_err(|_| eyre!("Semaphore closed but requests still being serviced"))?,
-            ports,
+                .map_err(|_| TestPermitError::SemaphorePoisoned)?,
+            ports: state.active_ports.clone(),
             port_number,
         })
     }
@@ -161,8 +175,7 @@ async fn main() -> Result<(), Report> {
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(Extension(state))
-                .layer(axum::middleware::from_fn(authenticate)),
+                .layer(Extension(state)),
         );
 
     info!("Listening on {}", cfg.api_address);
@@ -173,42 +186,27 @@ async fn main() -> Result<(), Report> {
     Ok(())
 }
 
-/// Authenticate against the state in the DB, using passed token header
-async fn authenticate<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode>
-where
-    B: Send + Sync,
-{
-    if let Some(token) = req.headers().get("Authorization") {
-        match token.to_str() {
-            Ok(token) => {
-                warn!("Fake auth passes against token: {token}");
-                //TODO: fetch the client object by token from DB and then give it to the next layer
-                Ok(next.run(req).await)
-            }
-            Err(e) => {
-                error!("Auth token contained non-ascii chars: '{e}'");
-                Err(StatusCode::INTERNAL_SERVER_ERROR)
-            }
-        }
-    } else {
-        Err(StatusCode::UNAUTHORIZED)
-    }
-}
-
 #[axum_macros::debug_handler]
 async fn new_test(
-    Json(request): Json<TestRequest>,
     Extension(state): Extension<Arc<State>>,
+    req: Request<Body>,
 ) -> axum::response::Result<Json<TestReservation>, StatusCode> {
-    debug!("Client info: {request:#?}");
+    // Extract auth token from request header
+    let token = req
+        .headers()
+        .get("Authorization")
+        .ok_or(StatusCode::BAD_REQUEST)?
+        .to_str()
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    // Acquire a test permit (this also ensures ports do not collide)
-    let test_permit = TestPermit::new(state.test_counter.clone(), state.active_ports.clone())
-        .await
-        .map_err(|e| {
-            error!("Creating test permit failed with error {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    // Acquire a test permit (this also enforces concurrency limit, auth, and any other rules)
+    let test_permit = TestPermit::new(&state, token).await.map_err(|e| match e {
+        TestPermitError::Unauthorized => {
+            info!("Unauthorized User!");
+            StatusCode::UNAUTHORIZED
+        }
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    })?;
     let port = test_permit.port_number;
 
     // Consume the permit, and save the handle to the test's results
