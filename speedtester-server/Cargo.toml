@@ -19,11 +19,12 @@ color-eyre = "0.6.1"
 dotenv = "0.15.0"
 
 iperf3 = { path = "../iperf3", features = ["allow_vendoring"] }
-sqlx = { version = "0.6", features = [
+sqlx = { version = "0.6.2", features = [
     "runtime-tokio-rustls",
     "postgres",
     "json",
     "offline",
+    "uuid",
 ] }
 rand = "0.8.5"
 reqwest = { version = "0.11.11", features = ["json"] }

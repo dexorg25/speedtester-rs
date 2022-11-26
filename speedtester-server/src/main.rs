@@ -55,10 +55,10 @@ impl TestPermit {
     async fn new(state: &State, token: &str) -> Result<Self, TestPermitError> {
         // perform authentication by searching for a matching user record
         let records = query!(
-            "SELECT * FROM registered_clients WHERE client_token = {};",
+            "SELECT * FROM registered_clients WHERE client_token = $1;",
             token
         )
-        .fetch_optional
+        .fetch_optional(&state.db_pool)
         .await;
 
         // Small loop to generate a new, free port for iperf to bind to
