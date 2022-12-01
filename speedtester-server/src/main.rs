@@ -25,6 +25,7 @@ use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 // Constants
 const MAX_CONCURRENT_TESTS: usize = 10;
@@ -41,11 +42,13 @@ struct TestPermit {
     _inner_permit: OwnedSemaphorePermit,
     ports: Arc<Mutex<HashSet<u16>>>,
     port_number: u16,
+    client_id: Uuid,
 }
 
 #[derive(Debug)]
 pub enum TestPermitError {
     Unauthorized,
+    DbError(Box<dyn Error>),
     MutexPoisoned,
     SemaphorePoisoned,
 }
@@ -54,12 +57,19 @@ impl TestPermit {
     // Get a random port from the pool that's not already in use, and return it with the semaphore guard
     async fn new(state: &State, token: &str) -> Result<Self, TestPermitError> {
         // perform authentication by searching for a matching user record
-        let records = query!(
+        // If no matching record is found then that is considered an auth failure
+        // If some other DB error happened, preserve it for logging if desired. Caller should error 500
+        let record = query!(
             "SELECT * FROM registered_clients WHERE client_token = $1;",
             token
         )
         .fetch_optional(&state.db_pool)
-        .await;
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => TestPermitError::Unauthorized,
+            _ => TestPermitError::DbError(Box::new(e)),
+        })?
+        .ok_or(TestPermitError::Unauthorized)?;
 
         // Small loop to generate a new, free port for iperf to bind to
         let port_number = {
@@ -92,12 +102,13 @@ impl TestPermit {
                 .map_err(|_| TestPermitError::SemaphorePoisoned)?,
             ports: state.active_ports.clone(),
             port_number,
+            client_id: record.id,
         })
     }
 
     /// Fork a test onto a thread, which will drop the current permit when the test server exits
     /// It is the callers responsibility to eventually do something with the join handle, and it's contained results
-    fn execute_test(self) -> JoinHandle<Result<TestResults, Box<dyn Error + Send + Sync>>> {
+    fn execute_test(self) -> JoinHandle<Result<(Uuid, TestResults), Box<dyn Error + Send + Sync>>> {
         // Simply spin up iperf in a blocking thread. Once done, return results to join handle
         tokio::task::spawn_blocking(move || {
             // sync code here
@@ -124,7 +135,7 @@ impl TestPermit {
 
             let test = server.run_server()?;
 
-            Ok(test)
+            Ok((self.client_id, test))
         })
     }
 }
@@ -243,14 +254,18 @@ async fn new_test(
 }
 
 async fn insert_new_test(
-    test: TestResults,
+    (id, test): (Uuid, TestResults),
     db: &Pool<Postgres>,
 ) -> Result<PgQueryResult, Box<dyn Error>> {
     let test = serde_json::to_value(test)?;
-    sqlx::query!("INSERT INTO packet_loss_tests (test) VALUES ($1)", test)
-        .execute(db)
-        .await
-        .map_err(std::convert::Into::into)
+    sqlx::query!(
+        "INSERT INTO packet_loss_tests (client_id, test) VALUES ($1, $2)",
+        id,
+        test
+    )
+    .execute(db)
+    .await
+    .map_err(std::convert::Into::into)
 }
 
 /// Check if a port is in use by attempting to (and immediately releasing) a bind to said port
