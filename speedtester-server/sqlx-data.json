@@ -1,15 +1,48 @@
 {
   "db": "PostgreSQL",
-  "94e4419745ab98fe9b6e498abc923c02746ee768dfc87fb11d12915693439d0a": {
+  "918c8a8de99ea1b0a5b102473ac421c39a61710174bfa88e0184056e6d1659ee": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "client_name",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "client_token",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT * FROM registered_clients WHERE client_token = $1;"
+  },
+  "c22ed86eb38aff41f24512f8dc8deeaed2a44ed0ccd83da5dc7e53b7827e90f3": {
     "describe": {
       "columns": [],
       "nullable": [],
       "parameters": {
         "Left": [
+          "Uuid",
           "Jsonb"
         ]
       }
     },
-    "query": "INSERT INTO packet_loss_tests (test) VALUES ($1)"
+    "query": "INSERT INTO packet_loss_tests (client_id, test) VALUES ($1, $2)"
   }
 }
