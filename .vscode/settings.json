@@ -17,5 +17,6 @@
     "makefile.makeDirectory": "extern/iperf",
     "editor.formatOnSave": true,
     "rust-analyzer.cargo.features": "all",
-    "rust-analyzer.checkOnSave.features": "all"
+    "rust-analyzer.checkOnSave.features": "all",
+    "rust-analyzer.trace.extension": true
 }
