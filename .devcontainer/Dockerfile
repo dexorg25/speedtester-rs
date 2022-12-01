@@ -4,6 +4,6 @@ ARG VARIANT="bullseye"
 FROM mcr.microsoft.com/devcontainers/rust:1-${VARIANT}
 
 # [Optional] Uncomment this section to install additional packages.
-# RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
-#     && apt-get -y install --no-install-recommends <your-package-list-here>
-RUN rustup default nightly
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends lld libsctp-dev
+RUN rustup default nightly && rustup component add rust-src clippy rustfmt

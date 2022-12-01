@@ -9,7 +9,7 @@ edition = "2021"
 tracing = "0.1.36"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter"] }
 iperf3 = { path = "../iperf3" }
-speedtester_server = { path = "../speedtester-server" }
+speedtester-server = { path = "../speedtester-server" }
 color-eyre = "0.6.2"
 clap = { version = "3.2.22", features = [
     "env",

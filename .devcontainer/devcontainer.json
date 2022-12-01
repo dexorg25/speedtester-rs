@@ -1,20 +1,24 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/rust-postgres
 {
-	"name": "Rust and PostgreSQL",
-	"dockerComposeFile": "docker-compose.yml",
-	"service": "app",
-	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
-
+	"name": "Rust env",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"args": {
+			"RUST_VERSION": "nightly"
+		}
+	},
 	// Features to add to the dev container. More info: https://containers.dev/features.
-	// "features": {},
-
+	"features": {
+		"ghcr.io/dhoeric/features/flyctl:1": {},
+		"ghcr.io/lukewiwa/features/shellcheck:0": {},
+	},
 	// Configure tool-specific properties.
 	"customizations": {
 		// Configure properties specific to VS Code.
 		"vscode": {
 			// Set *default* container specific settings.json values on container create.
-			"settings": { 
+			"settings": {
 				"lldb.executable": "/usr/bin/lldb",
 				// VS Code don't watch files under ./target
 				"files.watcherExclude": {
@@ -22,7 +26,6 @@
 				},
 				"rust-analyzer.checkOnSave.command": "clippy"
 			},
-			
 			// Add the IDs of extensions you want installed when the container is created.
 			"extensions": [
 				"vadimcn.vscode-lldb",
@@ -33,17 +36,10 @@
 			]
 		}
 	},
-	"features": {
-		"ghcr.io/dhoeric/features/flyctl:1": {},
-		"ghcr.io/lukewiwa/features/shellcheck:0": {}
-	}
-
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [5432],
-
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "rustc --version",
-
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
 	// "remoteUser": "root"
 }
