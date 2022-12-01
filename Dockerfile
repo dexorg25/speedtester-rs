@@ -18,12 +18,12 @@ RUN --mount=type=cache,target=/src/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     set -eux; \
     cargo install --path speedtester-server --target x86_64-unknown-linux-musl; \
-    objcopy --compress-debug-sections /usr/local/cargo/bin/speedtester_server ./speedtester_server; \
-    mv ./speedtester_server /usr/local/cargo/bin/speedtester_server
+    objcopy --compress-debug-sections  /usr/local/cargo/bin/speedtester-server ./speedtester_server; \
+    mv ./speedtester_server /usr/local/cargo/bin/speedtester-server
 
 FROM scratch
 
-COPY --from=builder /usr/local/cargo/bin/speedtester_server /speedtester_server
+COPY --from=builder /usr/local/cargo/bin/speedtester-server /speedtester-server
 
-CMD ["/speedtester_server"]
+CMD ["/speedtester-server"]
 

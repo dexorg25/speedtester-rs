@@ -295,7 +295,7 @@ fn setup() -> Result<(), Report> {
 
     // For now, debug at top level and info for all other modules and crates. Will change to warning later
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "warn");
+        std::env::set_var("RUST_LOG", "debug");
     }
     tracing_subscriber::fmt::fmt()
         .with_env_filter(EnvFilter::from_default_env())
