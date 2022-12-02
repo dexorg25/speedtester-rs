@@ -2,12 +2,15 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/rust-postgres
 {
 	"name": "Rust env",
-	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
-	"dockerComposeFile": "docker-compose.yml",
-	"service": "app",
-	"runServices": [
-		"db"
-	],
+	// "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	// "dockerComposeFile": "docker-compose.yml",
+	// "service": "app",
+	// "runServices": [
+	// "db"
+	// ],
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	"features": {
 		"ghcr.io/dhoeric/features/flyctl:1": {},
