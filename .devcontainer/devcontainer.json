@@ -2,18 +2,18 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/rust-postgres
 {
 	"name": "Rust env",
-	"workspaceFolder": "/workspace",
+	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
 	"dockerComposeFile": "docker-compose.yml",
 	"service": "app",
 	"runServices": [
 		"db"
 	],
 	// Features to add to the dev container. More info: https://containers.dev/features.
-	//"features": {
-		//"ghcr.io/dhoeric/features/flyctl:1": {},
-		//"ghcr.io/lukewiwa/features/shellcheck:0": {},
-		//"ghcr.io/devcontainers/features/docker-from-docker:1": {}
-	//},
+	"features": {
+		"ghcr.io/dhoeric/features/flyctl:1": {},
+		"ghcr.io/lukewiwa/features/shellcheck:0": {},
+		"ghcr.io/devcontainers/features/docker-from-docker:1": {}
+	},
 	// Configure tool-specific properties.
 	"customizations": {
 		// Configure properties specific to VS Code.
