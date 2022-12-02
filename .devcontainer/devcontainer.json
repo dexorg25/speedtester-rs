@@ -2,7 +2,7 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/rust-postgres
 {
 	"name": "Rust env",
-	"workspaceFolder": "/workspaces-local/${localWorkspaceFolderBasename}",
+	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
 	"dockerComposeFile": "docker-compose.yml",
 	"service": "app",
 	"runServices": [
