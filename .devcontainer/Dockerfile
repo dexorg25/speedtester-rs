@@ -11,4 +11,4 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends lld libsctp-dev
 
 # Fix permissions error introduced by above
-RUN chown vscode:rustlang /usr/local/cargo/registry /usr/local/cargo/git
+# RUN chown vscode:rustlang /usr/local/cargo/registry /usr/local/cargo/git
