@@ -151,7 +151,7 @@ async fn execute_test(
                 sleep(Duration::from_secs(1));
 
                 // Run the client, parsing and returning result struct
-                iperf3::test_udp_client(&iperf_host, resp.port_number)
+                Ok(iperf3::test_udp_client(&iperf_host, resp.port_number))
             });
 
             (result.await).map_or_else(

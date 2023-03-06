@@ -113,10 +113,7 @@ impl TestPermit {
         tokio::task::spawn_blocking(move || {
             // sync code here
             debug!("Start iperf server");
-            match iperf3::test_udp_server(self.port_number) {
-                Ok(ret) => Ok((self.client_id, ret)),
-                Err(e) => Err(e),
-            }
+            Ok((self.client_id, iperf3::test_udp_server(self.port_number)))
         })
     }
 }
