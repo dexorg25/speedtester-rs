@@ -29,6 +29,7 @@ pub fn test_udp_client(host: &str, port: u16) -> Result<reports::TestResults, re
     Ok(test_report)
 }
 
+#[cfg(test)]
 mod test {
     use super::{test_udp_client, test_udp_server};
 
