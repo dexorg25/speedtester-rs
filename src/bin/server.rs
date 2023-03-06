@@ -5,12 +5,12 @@ use axum::{
     Extension, Json, Router, Server,
 };
 use color_eyre::Report;
-use iperf3::TestResults;
 use rand::prelude::*;
+use speedtester_server::iperf3::reports::TestResults;
+use speedtester_server::iperf3::{self, reports::IperfError};
 use speedtester_server::TestReservation;
 
 use clap::Parser;
-use iperf3::IperfTest;
 use sqlx::{postgres::PgQueryResult, query, Pool, Postgres};
 use std::{
     collections::HashSet,
@@ -108,34 +108,15 @@ impl TestPermit {
 
     /// Fork a test onto a thread, which will drop the current permit when the test server exits
     /// It is the callers responsibility to eventually do something with the join handle, and it's contained results
-    fn execute_test(self) -> JoinHandle<Result<(Uuid, TestResults), Box<dyn Error + Send + Sync>>> {
+    fn execute_test(self) -> JoinHandle<Result<(Uuid, TestResults), IperfError>> {
         // Simply spin up iperf in a blocking thread. Once done, return results to join handle
         tokio::task::spawn_blocking(move || {
             // sync code here
             debug!("Start iperf server");
-            // let mut server = IperfTest::new_from_arguments([
-            //     "-s",
-            //     "-p",
-            //     &self.port_number.to_string(),
-            //     "-1",
-            //     "--idle-timeout",
-            //     "10",
-            // ])?;
-
-            let mut server = IperfTest::new()?;
-
-            server.set_role(&iperf3::TestRole::Server);
-            server.set_server_port(self.port_number.into());
-            server.set_one_off(true);
-            server.set_idle_timeout(std::time::Duration::from_secs(10));
-            server.set_json_output(true);
-            server.set_log_file(std::path::Path::new("/dev/null"));
-
-            // TODO: an iperf sentinel worker that through some scheme notifies us when iperf is up and ready to receive connections
-
-            let test = server.run_server()?;
-
-            Ok((self.client_id, test))
+            match iperf3::test_udp_server(self.port_number) {
+                Ok(ret) => Ok((self.client_id, ret)),
+                Err(e) => Err(e),
+            }
         })
     }
 }

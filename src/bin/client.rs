@@ -1,14 +1,16 @@
 use color_eyre::{Report, Result};
+use speedtester_server::iperf3::reports::IperfError;
+use speedtester_server::iperf3::reports::TestResults;
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
 
-use tracing::{debug, error};
-
 use core::fmt;
+use speedtester_server::iperf3;
 use speedtester_server::TestReservation;
 use std::thread::sleep;
 use std::time::Duration;
+use tracing::{debug, error};
 
 use reqwest::Client;
 use reqwest::StatusCode;
@@ -144,25 +146,13 @@ async fn execute_test(
             let resp: TestReservation = http_resp.json().await?;
             debug!(iperf_host, resp.port_number);
 
-            let result = tokio::task::spawn_blocking(
-                move || -> Result<iperf3::TestResults, Box<dyn std::error::Error + Send + Sync>> {
-                    // Wait one second here for test host to get it's server up, then call iperf3 client
-                    sleep(Duration::from_secs(1));
+            let result = tokio::task::spawn_blocking(move || -> Result<TestResults, IperfError> {
+                // Wait one second here for test host to get it's server up, then call iperf3 client
+                sleep(Duration::from_secs(1));
 
-                    // Init test context using FFI bindings to libiperf and configure the test that way instead of shelling out
-                    let mut test = iperf3::IperfTest::new()
-                        .map_err(|_| SpeedtesterError::IperfFail("allocation error".to_string()))?;
-
-                    test.set_server_port(resp.port_number.try_into().map_err(|_| {
-                        SpeedtesterError::IperfFail("Illegal port number passed".to_string())
-                    })?);
-                    test.set_test_server_hostname(&iperf_host);
-                    test.set_protocol(&iperf3::Proto::Udp);
-
-                    // Run the client, parsing and returning result struct
-                    test.run_client()
-                },
-            );
+                // Run the client, parsing and returning result struct
+                iperf3::test_udp_client(&iperf_host, resp.port_number)
+            });
 
             (result.await).map_or_else(
                 |_| {
