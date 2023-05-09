@@ -1,37 +1,10 @@
-[package]
-name = "speedtester-server"
-version = "0.1.0"
-edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
-axum = "0.5.7"
-axum-macros = "0.2.2"
-clap = { version = "3.1.5", features = [
-    "env",
-    "unicode",
-    "derive",
-    "wrap_help",
-    "deprecated",
-] }
-color-eyre = "0.6.1"
-dotenv = "0.15.0"
-
-sqlx = { version = "0.6.2", features = [
-    "runtime-tokio-rustls",
-    "postgres",
-    "json",
-    "offline",
-    "uuid",
-] }
-rand = "0.8.5"
-reqwest = { version = "0.11.11", features = ["json"] }
-serde = { version = "1.0.136", features = ["derive"] }
-serde_json = "1.0.79"
-tokio = { version = "1.17.0", features = ["full"] }
-tower = { version = "0.4.13", features = ["full"] }
-tower-http = { version = "0.3.4", features = ["full"] }
-tracing = "0.1.31"
-tracing-subscriber = { version = "0.3.9", features = ["env-filter"] }
-uuid = { version = "1.1.2", features = ["serde"] }
+[workspace]
+members = [
+    "crates/server",
+    "crates/client",
+    "crates/api",
+    "crates/iperf3-cli"
+]

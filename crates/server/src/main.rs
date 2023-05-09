@@ -1,3 +1,4 @@
+use api::TestReservation;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -5,10 +6,9 @@ use axum::{
     Extension, Json, Router, Server,
 };
 use color_eyre::Report;
+use iperf3_cli::reports::TestResults;
+use iperf3_cli::{self, reports::IperfError};
 use rand::prelude::*;
-use speedtester_server::iperf3::reports::TestResults;
-use speedtester_server::iperf3::{self, reports::IperfError};
-use speedtester_server::TestReservation;
 
 use clap::Parser;
 use sqlx::{postgres::PgQueryResult, query, Pool, Postgres};
@@ -113,7 +113,10 @@ impl TestPermit {
         tokio::task::spawn_blocking(move || {
             // sync code here
             debug!("Start iperf server");
-            Ok((self.client_id, iperf3::test_udp_server(self.port_number)))
+            Ok((
+                self.client_id,
+                iperf3_cli::test_udp_server(self.port_number),
+            ))
         })
     }
 }
@@ -158,7 +161,7 @@ async fn main() -> Result<(), Report> {
     // Apply migrations
     sqlx::migrate!().run(&state.db_pool).await?;
 
-    //TODO: Auth layer
+    //No auth layer used, wireguard secures it
     let app = Router::new()
         .route("/api/v1/newtest", post(new_test))
         .layer(
@@ -259,8 +262,6 @@ async fn port_in_use(port: u16) -> bool {
         }
     }
 }
-
-//async fn _authenticate() {}
 
 fn setup() -> Result<(), Report> {
     // Load environment from .env if present for dev convenience

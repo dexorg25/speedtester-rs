@@ -1,13 +1,13 @@
 use color_eyre::{Report, Result};
-use speedtester_server::iperf3::reports::IperfError;
-use speedtester_server::iperf3::reports::TestResults;
+use iperf3_cli::reports::IperfError;
+use iperf3_cli::reports::TestResults;
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
 
+use api::TestReservation;
 use core::fmt;
-use speedtester_server::iperf3;
-use speedtester_server::TestReservation;
+use iperf3_cli as iperf3;
 use std::thread::sleep;
 use std::time::Duration;
 use tracing::{debug, error};

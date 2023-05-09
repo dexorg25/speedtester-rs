@@ -1,0 +1,29 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+clap = { version = "3.1.5", features = [
+    "env",
+    "unicode",
+    "derive",
+    "wrap_help",
+    "deprecated",
+] }
+color-eyre = "0.6.1"
+dotenv = "0.15.0"
+
+reqwest = { version = "0.11.11", features = ["json"] }
+serde = { version = "1.0.136", features = ["derive"] }
+serde_json = "1.0.79"
+uuid = { version = "1.1.2", features = ["serde"] }
+
+iperf3-cli = { path = "../iperf3-cli" }
+api =   { path = "../api" }
+tokio = "1.28.0"
+tracing = "0.1.37"
+tracing-subscriber = "0.3.17"
+
+

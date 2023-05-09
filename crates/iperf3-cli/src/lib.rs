@@ -2,7 +2,7 @@ pub mod reports;
 
 use std::process;
 
-use crate::iperf3::reports::TestResults;
+use reports::TestResults;
 
 /// Start iperf 3 server on the given port
 ///
