@@ -8,12 +8,14 @@ use clap::Parser;
 use api::TestReservation;
 use core::fmt;
 use iperf3_cli as iperf3;
-use std::thread::sleep;
 use std::time::Duration;
+use std::{path::PathBuf, thread::sleep};
 use tracing::{debug, error};
 
 use reqwest::Client;
 use reqwest::StatusCode;
+use std::path::MAIN_SEPARATOR_STR;
+use uuid::Uuid;
 
 #[derive(Parser)]
 struct Config {
@@ -21,13 +23,13 @@ struct Config {
     #[clap(env = "TEST_HOST")]
     test_host: String,
 
-    /// Authentication token passed in header to access service
-    #[clap(env = "API_TOKEN")]
-    api_token: String,
-
     /// Interval at which to run tests (in seconds)
     #[clap(short, default_value = "1", env = "INTERVAL")]
     interval: f32,
+
+    /// Client UUID (If not provided, a new one will be saved into the config file (which will be created if not present))
+    #[clap(short, long, env = "CLIENT_UUID")]
+    client_uuid: Option<Uuid>,
 }
 
 #[derive(Debug)]
@@ -78,9 +80,18 @@ async fn main() -> Result<()> {
     setup()?;
 
     // Argument parsing defined by `Config`
-    let args = Config::parse();
+    let config = {
+        // Path to configuration file
+        let config_path = Path::from(".speedtester-config.toml");
+        println!(
+            "Config path: {}",
+            config_path.canonicalize().unwrap().display()
+        );
+        panic!();
+        Config::parse()
+    };
 
-    let test_host = args.test_host;
+    let test_host = config.test_host;
 
     let test_url = test_host + "/api/v1/newtest";
 
@@ -88,7 +99,7 @@ async fn main() -> Result<()> {
     debug!("Create HTTP client");
     let http_client = std::sync::Arc::new(Client::new());
 
-    let mut sleep_timer = tokio::time::interval(Duration::from_secs_f32(args.interval));
+    let mut sleep_timer = tokio::time::interval(Duration::from_secs_f32(config.interval));
 
     // test driver loop
     loop {
@@ -96,7 +107,7 @@ async fn main() -> Result<()> {
         sleep_timer.tick().await;
 
         debug!("Spawning a test");
-        match execute_test(http_client.clone(), &test_url, &args.api_token).await {
+        match execute_test(http_client.clone(), &test_url).await {
             Ok(_) => {
                 // Given the test passed, there isn't anything to do on this end. Server now handles reporting
             }
@@ -129,13 +140,11 @@ async fn main() -> Result<()> {
 async fn execute_test(
     client: std::sync::Arc<Client>,
     test_host: &str,
-    api_token: &str,
 ) -> Result<(), SpeedtesterError> {
     debug!("Request test reservation");
     let http_resp = client
         .post(test_host)
         .header("Content-Type", "application/json")
-        .header("Authorization", api_token)
         .send()
         .await?;
 
@@ -176,7 +185,7 @@ async fn execute_test(
 
 fn setup() -> Result<(), Report> {
     // Load environment from .env if present for dev convenience
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     // if std::env::var("RUST_LIB_BACKTRACE").is_err() {
     //     std::env::set_var("RUST_LIB_BACKTRACE", "1")

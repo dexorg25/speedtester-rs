@@ -21,5 +21,8 @@
     "rust-analyzer.trace.extension": true,
     "rust-analyzer.linkedProjects": [
         ".\\crates\\client\\Cargo.toml"
-    ]
+    ],
+    "rust-analyzer.cargo.extraEnv": {
+        "RUSTFLAGS": "-Z macro-backtrace"
+    },
 }

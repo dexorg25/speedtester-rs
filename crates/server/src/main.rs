@@ -8,7 +8,6 @@ use axum::{
 use color_eyre::Report;
 use iperf3_cli::reports::TestResults;
 use iperf3_cli::{self, reports::IperfError};
-use rand::prelude::*;
 
 use clap::Parser;
 use sqlx::{postgres::PgQueryResult, query, Pool, Postgres};
@@ -19,6 +18,7 @@ use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
+use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 use tower::ServiceBuilder;
@@ -42,6 +42,7 @@ struct TestPermit {
     _inner_permit: OwnedSemaphorePermit,
     ports: Arc<Mutex<HashSet<u16>>>,
     port_number: u16,
+    port_listener: Option<TcpListener>,
     client_id: Uuid,
 }
 
@@ -51,6 +52,7 @@ pub enum TestPermitError {
     DbError(Box<dyn Error>),
     MutexPoisoned,
     SemaphorePoisoned,
+    IoError(Box<dyn Error>),
 }
 
 impl TestPermit {
@@ -71,27 +73,26 @@ impl TestPermit {
         })?
         .ok_or(TestPermitError::Unauthorized)?;
 
-        // Small loop to generate a new, free port for iperf to bind to
-        let port_number = {
-            loop {
-                // Would share this but it's not cool to hold across .await??? I need a nicer random
-                let port = thread_rng().gen_range(5000..6000);
-                // Only try to use a port if it passes the in_use test first
-                // This test is necessary, if the RNG returns the same number twice in a row, and two permit requests come in for the same port
-                //   (say this runs something else after one of these awaits and that something else is another test request)
-                //   then if there were no hash set check, two test requests could be created with the same port number and one of the iperfs might fail
-                if !port_in_use(port).await {
-                    let mut ports_guard = state
-                        .active_ports
-                        .lock()
-                        .map_err(|_| TestPermitError::MutexPoisoned)?;
-                    if !ports_guard.contains(&port) {
-                        ports_guard.insert(port);
-                        break port;
-                    }
+        // Get a port
+        let (port_number, port_listener) = {
+            match tokio::net::TcpListener::bind(("0.0.0.0", 0)).await {
+                Ok(listener) => {
+                    let port = listener
+                        .local_addr()
+                        .map_err(|e| {
+                            error!("Failed to get addr: error '{e}'");
+                            TestPermitError::IoError(Box::new(e))
+                        })?
+                        .port();
+                    Ok((port, listener))
+                }
+                Err(e) => {
+                    // Complain if we cannot bind
+                    error!("Port test failed with {e}");
+                    Err(TestPermitError::IoError(Box::new(e)))
                 }
             }
-        };
+        }?;
         // Iperf concurrency limit is ensured here
         Ok(Self {
             _inner_permit: state
@@ -102,16 +103,19 @@ impl TestPermit {
                 .map_err(|_| TestPermitError::SemaphorePoisoned)?,
             ports: state.active_ports.clone(),
             port_number,
+            port_listener: Some(port_listener),
             client_id: record.id,
         })
     }
 
     /// Fork a test onto a thread, which will drop the current permit when the test server exits
     /// It is the callers responsibility to eventually do something with the join handle, and it's contained results
-    fn execute_test(self) -> JoinHandle<Result<(Uuid, TestResults), IperfError>> {
+    fn execute_test(mut self) -> JoinHandle<Result<(Uuid, TestResults), IperfError>> {
         // Simply spin up iperf in a blocking thread. Once done, return results to join handle
         tokio::task::spawn_blocking(move || {
             // sync code here
+            debug!("drop the TCP Listener to release the port");
+            self.port_listener.take();
             debug!("Start iperf server");
             Ok((
                 self.client_id,
@@ -249,23 +253,9 @@ async fn insert_new_test(
     .map_err(std::convert::Into::into)
 }
 
-/// Check if a port is in use by attempting to (and immediately releasing) a bind to said port
-async fn port_in_use(port: u16) -> bool {
-    match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
-        Ok(_) => false,
-        Err(e) => {
-            // Complain if it is not the error we expect
-            if e.kind() != std::io::ErrorKind::AlreadyExists {
-                error!("Port test failed with {e}");
-            }
-            true
-        }
-    }
-}
-
 fn setup() -> Result<(), Report> {
     // Load environment from .env if present for dev convenience
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     // if std::env::var("RUST_LIB_BACKTRACE").is_err() {
     //     std::env::set_var("RUST_LIB_BACKTRACE", "1")
