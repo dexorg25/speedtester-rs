@@ -1,6 +1,7 @@
 use color_eyre::{Report, Result};
 use iperf3_cli::reports::IperfError;
 use iperf3_cli::reports::TestResults;
+use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
 use clap::Parser;
@@ -8,28 +9,41 @@ use clap::Parser;
 use api::TestReservation;
 use core::fmt;
 use iperf3_cli as iperf3;
-use std::time::Duration;
-use std::{path::PathBuf, thread::sleep};
+use std::thread::sleep;
+use std::{
+    io::{Read, Write},
+    path::Path,
+    time::Duration,
+};
 use tracing::{debug, error};
 
 use reqwest::Client;
 use reqwest::StatusCode;
-use std::path::MAIN_SEPARATOR_STR;
+
 use uuid::Uuid;
 
-#[derive(Parser)]
+const DEFAULT_CONFIG_PATH: &str = "speedtester_config.toml";
+
+#[derive(Deserialize, Serialize, Debug)]
 struct Config {
-    // URL for test host API (reused for iperf endpoint too)
-    #[clap(env = "TEST_HOST")]
+    /// URL for test host API (reused for iperf endpoint too)
     test_host: String,
 
     /// Interval at which to run tests (in seconds)
-    #[clap(short, default_value = "1", env = "INTERVAL")]
     interval: f32,
 
-    /// Client UUID (If not provided, a new one will be saved into the config file (which will be created if not present))
-    #[clap(short, long, env = "CLIENT_UUID")]
-    client_uuid: Option<Uuid>,
+    /// Client UUID (new one will be generated if config file is missing)
+    client_uuid: Uuid,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            test_host: "http://localhost:8080".to_string(),
+            interval: 1.,
+            client_uuid: Uuid::new_v4(),
+        }
+}
 }
 
 #[derive(Debug)]
@@ -79,17 +93,31 @@ impl std::error::Error for SpeedtesterError {}
 async fn main() -> Result<()> {
     setup()?;
 
-    // Argument parsing defined by `Config`
+    // Configure from a file (create with default values if missing)
     let config = {
         // Path to configuration file
-        let config_path = Path::from(".speedtester-config.toml");
-        println!(
-            "Config path: {}",
-            config_path.canonicalize().unwrap().display()
-        );
-        panic!();
-        Config::parse()
+        let config_path = Path::new(DEFAULT_CONFIG_PATH);
+
+        let mut config_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open(config_path)?;
+
+        let mut contents = String::new();
+        config_file.read_to_string(&mut contents)?;
+
+        // If the file is empty and/or doesn't exist, create a new one with default values
+        if contents.is_empty() {
+            let config = Config::default();
+            config_file.write_all(toml::to_string_pretty(&config)?.as_bytes())?;
+            config
+        } else {
+            toml::from_str::<Config>(&contents)?
+        }
     };
+
+    println!("Config: {:?}", config);
 
     let test_host = config.test_host;
 
