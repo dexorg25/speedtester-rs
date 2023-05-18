@@ -5,13 +5,6 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-clap = { version = "3.1.5", features = [
-    "env",
-    "unicode",
-    "derive",
-    "wrap_help",
-    "deprecated",
-] }
 color-eyre = "0.6.1"
 
 reqwest = { version = "0.11.11", features = ["json"] }
@@ -24,7 +17,6 @@ api =   { path = "../api" }
 tokio = {version = "1.28.0", features = ["full"] }
 tracing = "0.1.37"
 tracing-subscriber = {version="0.3.17", features = ["env-filter"] }
-dotenvy = "0.15.7"
 toml = "0.7.3"
 
 

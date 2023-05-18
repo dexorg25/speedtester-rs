@@ -4,8 +4,6 @@ use iperf3_cli::reports::TestResults;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
-use clap::Parser;
-
 use api::TestReservation;
 use core::fmt;
 use iperf3_cli as iperf3;
@@ -212,12 +210,9 @@ async fn execute_test(
 }
 
 fn setup() -> Result<(), Report> {
-    // Load environment from .env if present for dev convenience
-    dotenvy::dotenv().ok();
-
-    // if std::env::var("RUST_LIB_BACKTRACE").is_err() {
-    //     std::env::set_var("RUST_LIB_BACKTRACE", "1")
-    // }
+    if std::env::var("RUST_LIB_BACKTRACE").is_err() {
+        std::env::set_var("RUST_LIB_BACKTRACE", "full");
+    }
     color_eyre::install()?;
 
     // For now, debug at top level and info for all other modules and crates. Will change to warning later
