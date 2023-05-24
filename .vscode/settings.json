@@ -21,6 +21,7 @@
         ".\\crates\\client\\Cargo.toml"
     ],
     "rust-analyzer.cargo.extraEnv": {
+        "DATABASE_URL": "postgres://dex@10.0.8.10:5432/speedtester",
         "RUSTFLAGS": "-Z macro-backtrace"
     },
 }
