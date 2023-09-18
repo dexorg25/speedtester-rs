@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    println!("Config: {:?}", config);
+    println!("Config: {config:?}");
 
     let test_host = config.test_host;
 
