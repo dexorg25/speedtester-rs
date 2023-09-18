@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO packet_loss_tests (client_id, test) VALUES ($1, $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c22ed86eb38aff41f24512f8dc8deeaed2a44ed0ccd83da5dc7e53b7827e90f3"
+}

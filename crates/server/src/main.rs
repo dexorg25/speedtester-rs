@@ -14,7 +14,6 @@ use sqlx::{postgres::PgQueryResult, query, Pool, Postgres};
 use std::{
     collections::HashSet,
     error::Error,
-    marker::Send,
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
@@ -142,10 +141,10 @@ impl Drop for TestPermit {
 
 #[derive(Parser)]
 struct Config {
-    #[clap(env = "DATABASE_URL")]
+    #[arg(env = "DATABASE_URL")]
     db_url: String,
 
-    #[clap(default_value = "[::]:8080", env = "HOST_ADDR")]
+    #[arg(default_value = "[::]:8080", env = "HOST_ADDR")]
     api_address: SocketAddr,
 }
 
@@ -264,7 +263,7 @@ fn setup() -> Result<(), Report> {
 
     // For now, debug at top level and info for all other modules and crates. Will change to warning later
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "debug");
+        std::env::set_var("RUST_LOG", "warn");
     }
     tracing_subscriber::fmt::fmt()
         .with_env_filter(EnvFilter::from_default_env())

@@ -8,3 +8,4 @@ members = [
     "crates/api",
     "crates/iperf3-cli"
 ]
+resolver = "2"
