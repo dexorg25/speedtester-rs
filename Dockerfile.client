@@ -1,0 +1,25 @@
+# Start with a rust base, to compile the application for deployment
+FROM rust AS builder
+
+WORKDIR /src/
+COPY . .
+
+RUN apt-get update
+RUN apt-get install -y musl-tools sccache libclang1 llvm
+
+RUN rustup target add aarch64-unknown-linux-musl
+
+# Cache build folders, build, and then compress the debug sections
+RUN --mount=type=cache,target=/src/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    set -eux; \
+    cargo build --release -p client --target=aarch64-unknown-linux-musl; \
+    cp /src/target/aarch64-unknown-linux-musl/release/client /client;
+
+FROM scratch
+
+COPY --from=builder /client /client
+
+CMD ["/client"]
+
