@@ -2,11 +2,12 @@
 FROM rust AS builder
 
 WORKDIR /src/
-COPY ../.. .
+COPY . .
 
-RUN apt-get update && apt-get install -y musl-tools;
+RUN apt-get update
+RUN apt-get install -y musl-tools sccache
 
-RUN rustup target add x86_64-unknown-linux-musl;
+RUN rustup target add x86_64-unknown-linux-musl
 
 # Cache build folders, build, and then compress the debug sections
 RUN --mount=type=cache,target=/src/target \
@@ -14,11 +15,11 @@ RUN --mount=type=cache,target=/src/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     set -eux; \
     cargo build --release -p server --target=x86_64-unknown-linux-musl; \
-    objcopy --compress-debug-sections  target/release/server ./speedtester_server
+    cp /src/target/x86_64-unknown-linux-musl/release/server /server;
 
 FROM scratch
 
-COPY --from=builder /src/speedtester_server /speedtester-server
+COPY --from=builder /server /speedtester-server
 
 CMD ["/speedtester-server"]
 
