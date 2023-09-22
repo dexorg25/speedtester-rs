@@ -32,6 +32,5 @@ tower-http = { version = "0.4.*", features = ["full"] }
 tracing = "0.1.31"
 tracing-subscriber = { version = "0.3.9", features = ["env-filter"] }
 uuid = { version = "1.1.2", features = ["serde"] }
-iperf3-cli = { path = "../iperf3-cli" }
 api =   { path = "../api" }
 dotenvy = "0.15.7"

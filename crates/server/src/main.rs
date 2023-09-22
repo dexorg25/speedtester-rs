@@ -6,8 +6,6 @@ use axum::{
     Extension, Json, Router, Server,
 };
 use color_eyre::Report;
-use iperf3_cli::reports::TestResults;
-use iperf3_cli::{self, reports::IperfError};
 
 use clap::Parser;
 use sqlx::{postgres::PgQueryResult, query, Pool, Postgres};

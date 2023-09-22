@@ -12,7 +12,6 @@ serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.79"
 uuid = { version = "1.1.2", features = ["serde", "v4"] }
 
-iperf3-cli = { path = "../iperf3-cli" }
 api =   { path = "../api" }
 tokio = {version = "1.28.0", features = ["full"] }
 tracing = "0.1.37"
