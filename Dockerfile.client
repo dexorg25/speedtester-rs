@@ -1,23 +1,21 @@
 # Start with a rust base, to compile the application for deployment
 FROM rust AS builder
 
+RUN apt-get update
+RUN apt-get install -y llvm libclang1 clang
+
 WORKDIR /src/
 COPY . .
 
-RUN apt-get update
-RUN apt-get install -y musl-tools sccache libclang1 llvm
-
-RUN rustup target add aarch64-unknown-linux-musl
-
-# Cache build folders, build, and then compress the debug sections
+# Cache build folders, build, copy out of cache into builder
 RUN --mount=type=cache,target=/src/target \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     set -eux; \
-    cargo build --release -p client --target=aarch64-unknown-linux-musl; \
-    cp /src/target/aarch64-unknown-linux-musl/release/client /client;
+    cargo build --release -p client; \
+    cp /src/target/release/client /client;
 
-FROM scratch
+FROM debian:bookworm-slim
 
 COPY --from=builder /client /client
 

@@ -1,15 +1,16 @@
 # Start with a rust base, to compile the application for deployment
 FROM rust AS builder
 
-WORKDIR /src/
-COPY . .
 
 RUN apt-get update
 RUN apt-get install -y musl-tools sccache
 
 RUN rustup target add x86_64-unknown-linux-musl
 
-# Cache build folders, build, and then compress the debug sections
+WORKDIR /src/
+COPY . .
+
+# Cache object folder and cargo registry, build
 RUN --mount=type=cache,target=/src/target \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
