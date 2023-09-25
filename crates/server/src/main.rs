@@ -5,7 +5,7 @@ use axum::{
     routing::post,
     Extension, Json, Router, Server,
 };
-use color_eyre::Report;
+use color_eyre::{Report, eyre::eyre};
 
 use clap::Parser;
 use sqlx::{postgres::PgQueryResult, query, Pool, Postgres};
@@ -107,17 +107,18 @@ impl TestPermit {
 
     /// Fork a test onto a thread, which will drop the current permit when the test server exits
     /// It is the callers responsibility to eventually do something with the join handle, and it's contained results
-    fn execute_test(mut self) -> JoinHandle<Result<(Uuid, TestResults), IperfError>> {
+    fn execute_test(mut self) -> JoinHandle<Result<(), color_eyre::Report>> {
         // Simply spin up iperf in a blocking thread. Once done, return results to join handle
         tokio::task::spawn_blocking(move || {
             // sync code here
             debug!("drop the TCP Listener to release the port");
             self.port_listener.take();
             debug!("Start iperf server");
-            Ok((
-                self.client_id,
-                iperf3_cli::test_udp_server(self.port_number),
-            ))
+            // Ok((
+            //     self.client_id,
+            //     iperf3_cli::test_udp_server(self.port_number),
+            // ))
+            Err(eyre!("unimplemented"))
         })
     }
 }
@@ -209,24 +210,24 @@ async fn new_test(
     // The client must give the server some time to initialize...
 
     // In the meantime hand the future for the report to async worker for eventual insertion to the DB
-    tokio::spawn(async move {
-        match report_future.await {
-            Ok(result) => match result {
-                Ok(report) => {
-                    // Not much can be done about this from here, just log it
-                    if let Err(e) = insert_new_test(report, &state.db_pool).await {
-                        error!("DB error {e}");
-                    }
-                }
-                Err(e) => {
-                    error!("Iperf execution error: '{e:?}'");
-                }
-            },
-            Err(e) => {
-                error!("Join Error: '{e}'");
-            }
-        }
-    });
+    // tokio::spawn(async move {
+    //     match report_future.await {
+    //         Ok(result) => match result {
+    //             Ok(report) => {
+    //                 // Not much can be done about this from here, just log it
+    //                 if let Err(e) = insert_new_test(report, &state.db_pool).await {
+    //                     error!("DB error {e}");
+    //                 }
+    //             }
+    //             Err(e) => {
+    //                 error!("Iperf execution error: '{e:?}'");
+    //             }
+    //         },
+    //         Err(e) => {
+    //             error!("Join Error: '{e}'");
+    //         }
+    //     }
+    // });
 
     // This assumes that the server launch passed, and further that the server runs correctly
     // given the commands listed above, there will be issues if any of those fail to hold true
@@ -236,7 +237,7 @@ async fn new_test(
 }
 
 async fn insert_new_test(
-    (id, test): (Uuid, TestResults),
+    (id, test): (Uuid, String),
     db: &Pool<Postgres>,
 ) -> Result<PgQueryResult, Box<dyn Error>> {
     let test = serde_json::to_value(test)?;

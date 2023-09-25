@@ -1,12 +1,9 @@
 use color_eyre::{Report, Result};
-use iperf3_cli::reports::IperfError;
-use iperf3_cli::reports::TestResults;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
 use api::TestReservation;
 use core::fmt;
-use iperf3_cli as iperf3;
 use std::thread::sleep;
 use std::{
     io::{Read, Write},
@@ -181,12 +178,13 @@ async fn execute_test(
             let resp: TestReservation = http_resp.json().await?;
             debug!(iperf_host, resp.port_number);
 
-            let result = tokio::task::spawn_blocking(move || -> Result<TestResults, IperfError> {
+            let result = tokio::task::spawn_blocking(move || -> Result<(), SpeedtesterError> {
                 // Wait one second here for test host to get it's server up, then call iperf3 client
                 sleep(Duration::from_secs(1));
 
                 // Run the client, parsing and returning result struct
-                Ok(iperf3::test_udp_client(&iperf_host, resp.port_number))
+                // Ok(iperf3::test_udp_client(&iperf_host, resp.port_number))
+                Err(SpeedtesterError::IperfFail("unimplemented".to_owned()))
             });
 
             (result.await).map_or_else(
