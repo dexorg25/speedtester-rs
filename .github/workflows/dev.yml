@@ -11,6 +11,10 @@ jobs:
     
     steps:
       - uses: actions/Checkout@v3
+        with:
+          sparse-checkout: |
+            .git
+            .github
       - run: gh pr create -B main -f -l CI
         continue-on-error: true
         env:
