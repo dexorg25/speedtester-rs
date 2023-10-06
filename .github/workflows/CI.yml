@@ -16,7 +16,7 @@ jobs:
   pull_request:
     name: Create PR
     runs-on: self-hosted
-    if:  contains(github.ref, 'dev') && contains(!github.event_name, 'pull_request')
+    if:  contains(github.ref, 'dev') && !contains(github.event_name, 'pull_request')
     steps:
     - uses: actions/checkout@v3
 
