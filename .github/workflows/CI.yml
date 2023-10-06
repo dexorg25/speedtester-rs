@@ -52,7 +52,7 @@ jobs:
     if: contains(github.ref, 'dev')
     steps:
     - uses: actions/checkout@v3
-    - run: gh pr merge
+    - run: gh pr merge --merge
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
