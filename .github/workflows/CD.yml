@@ -1,12 +1,7 @@
 name: CD
-
 on:
   push:
-    branches: 
-      - main
-
-env:
-  CARGO_TERM_COLOR: always
+    branches: [ 'main' ]
 
 jobs:
   deploy:
