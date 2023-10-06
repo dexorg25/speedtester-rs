@@ -1,9 +1,6 @@
 name: CI
 
 on:
-  pull_request:
-    branches:
-      - main
   push:
     branches: 
       - dev
@@ -16,13 +13,13 @@ jobs:
   pull_request:
     name: Create PR if not exists
     runs-on: self-hosted
+    if:  contains(github.ref, 'dev')
     steps:
     - uses: actions/checkout@v3
 
     # Create a pull request if not on one
     - run: gh pr create -B main -f -l CI
       continue-on-error: true
-      if:  contains(github.ref, 'dev') && contains(github.event_name, 'push')
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -30,6 +27,7 @@ jobs:
     name: check
     runs-on: self-hosted
     needs: pull_request
+    if:  contains(github.ref, 'dev')
 
     steps:
     - uses: actions/checkout@v3
@@ -51,7 +49,6 @@ jobs:
   deploy:
     name: Deploy to Fly.io
     runs-on: self-hosted
-    needs: check
     if: contains(github.ref, 'main') && contains(github.event_name, 'push')
     steps:
     - uses: actions/checkout@v3
