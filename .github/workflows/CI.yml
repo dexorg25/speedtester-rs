@@ -16,19 +16,20 @@ jobs:
   pull_request:
     name: Create PR if not exists
     runs-on: self-hosted
-    if:  contains(github.ref, 'dev') && contains(github.event_name, 'push')
     steps:
     - uses: actions/checkout@v3
 
     # Create a pull request if not on one
     - run: gh pr create -B main -f -l CI
       continue-on-error: true
+      if:  contains(github.ref, 'dev') && contains(github.event_name, 'push')
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   check:
     name: check
     runs-on: self-hosted
+    needs: pull_request
 
     steps:
     - uses: actions/checkout@v3
