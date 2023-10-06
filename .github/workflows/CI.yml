@@ -1,4 +1,4 @@
-name: check
+name: CI
 
 on:
   pull_request:
@@ -27,9 +27,9 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
-    name: Build and Test
+    name: check
     runs-on: self-hosted
-    if:  contains(github.ref, 'dev') && contains(github.event_name, 'pull_request')
+    if: contains(github.ref, 'dev') && contains(github.event_name, 'pull_request')
 
     steps:
     - uses: actions/checkout@v3
@@ -51,7 +51,7 @@ jobs:
   deploy:
     name: Deploy to Fly.io
     runs-on: self-hosted
-    needs: build
+    if: contains(github.ref, 'main') && contains(github.event_name, 'pull_request')
     steps:
     - uses: actions/checkout@v3
     - run: ~/.fly/bin/fly deploy --local-only
