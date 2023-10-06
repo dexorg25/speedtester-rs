@@ -28,7 +28,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Get my own cache
-      run: rsync -a --link-dest=../ ../_jellyfin_obj_cache/ target/
+      run: rsync -a --link-dest=../ ../../_speedtester_obj_cache/ target/
           
     - name: Build
       run: cargo build --verbose
@@ -37,7 +37,7 @@ jobs:
 
     - name: put my cache back
       run:
-        rsync -a --delete --link-dest=../ target/ ../_jellyfin_obj_cache/
+        rsync -a --delete --link-dest=../ target/ ../../_speedtester_obj_cache/
 
     - name: Deploy to Fly
       # only run from main
