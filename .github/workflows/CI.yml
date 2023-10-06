@@ -29,9 +29,13 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - run: mkdir target/
+      continue-on-error: true
+
     - name: Get my own object cache
       continue-on-error: true
-      run: rsync -a --link-dest=../ ../_obj_cache/ target/
+      run: |
+        cp -lr ../_obj_cache/* target/
           
     - name: Check
       run: cargo build --verbose
@@ -52,3 +56,10 @@ jobs:
     - run: gh pr merge --merge
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: self-hosted
+    needs: check_merge
+    steps:
+    - uses: actions/checkout@v3
+    - run: ~/.fly/bin/fly deploy --local-only
