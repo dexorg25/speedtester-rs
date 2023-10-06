@@ -15,4 +15,4 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: deploy via flyctl
-      run: fly deploy --local-only
+      run: ~/.fly/bin/fly deploy --local-only
