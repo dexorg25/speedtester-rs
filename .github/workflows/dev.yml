@@ -12,6 +12,6 @@ jobs:
     
     steps:
       - uses: actions/Checkout@v3
-      - run: gh pr create -B main -f
+      - run: gh pr create -B main -f -l CI
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
