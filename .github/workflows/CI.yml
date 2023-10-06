@@ -4,7 +4,6 @@ on:
   push:
     branches: 
       - dev
-      - main
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,7 +12,6 @@ jobs:
   pull_request:
     name: Create PR if not exists
     runs-on: self-hosted
-    if:  contains(github.ref, 'dev')
     steps:
     - uses: actions/checkout@v3
 
@@ -27,7 +25,6 @@ jobs:
     name: check
     runs-on: self-hosted
     needs: pull_request
-    if:  contains(github.ref, 'dev')
 
     steps:
     - uses: actions/checkout@v3
@@ -46,7 +43,7 @@ jobs:
         rsync -a --delete --link-dest=../ target/ ../_obj_cache/
     
   check_merge:
-    name: yolo merge it
+    name: yolo merge it (if tests pass)
     runs-on: self-hosted
     needs: check
     if: contains(github.ref, 'dev')
@@ -55,11 +52,3 @@ jobs:
     - run: gh pr merge --merge
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-  deploy:
-    name: Deploy to Fly.io
-    runs-on: self-hosted
-    steps:
-    - uses: actions/checkout@v3
-    - run: ~/.fly/bin/fly deploy --local-only
