@@ -26,9 +26,6 @@ jobs:
           .cargo
           .git
           .github
-          Cargo.toml
-          fly.toml
-          Dockerfile.server
 
     # Create a pull request if not on one
     - run: gh pr create -B main -f -l CI
