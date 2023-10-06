@@ -14,9 +14,9 @@ env:
 
 jobs:
   pull_request:
-    name: Create PR
+    name: Create PR if not exists
     runs-on: self-hosted
-    if:  contains(github.ref, 'dev') && !contains(github.event_name, 'pull_request')
+    if:  contains(github.ref, 'dev') && contains(github.event_name, 'push')
     steps:
     - uses: actions/checkout@v3
 
@@ -26,10 +26,9 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build:
+  check:
     name: check
     runs-on: self-hosted
-    if: contains(github.ref, 'dev') && contains(github.event_name, 'pull_request')
 
     steps:
     - uses: actions/checkout@v3
@@ -51,6 +50,7 @@ jobs:
   deploy:
     name: Deploy to Fly.io
     runs-on: self-hosted
+    needs: check
     if: contains(github.ref, 'main') && contains(github.event_name, 'push')
     steps:
     - uses: actions/checkout@v3
