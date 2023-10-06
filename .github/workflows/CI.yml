@@ -44,6 +44,17 @@ jobs:
     - name: Sync back to it
       run:
         rsync -a --delete --link-dest=../ target/ ../_obj_cache/
+    
+  check_merge:
+    name: yolo merge it
+    runs-on: self-hosted
+    needs: check
+    if: contains(github.ref, 'dev')
+    steps:
+    - uses: actions/checkout@v3
+    - run: gh pr merge
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
   deploy:
