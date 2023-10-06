@@ -8,10 +8,10 @@ jobs:
   build:
     name: develop
     runs-on: self-hosted
-    continue-on-error: true
     
     steps:
       - uses: actions/Checkout@v3
       - run: gh pr create -B main -f -l CI
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
