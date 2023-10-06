@@ -1,0 +1,45 @@
+name: check
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches: 
+      - dev
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: check
+    runs-on: self-hosted
+
+    steps:
+    - uses: actions/checkout@v3
+
+    # Create a pull request if not on one
+    - run: gh pr create -B main -f -l CI
+      continue-on-error: true
+      if:  contains(github.ref, 'dev') && contains(!github.event_name, 'pull_request')
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Get my own cache
+      run: rsync -a --link-dest=../ ../../_speedtester_obj_cache/ target/
+          
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: put my cache back
+      run:
+        rsync -a --delete --link-dest=../ target/ ../../_speedtester_obj_cache/
+
+    - name: Deploy to Fly
+      # only run from main
+      if:  contains(github.ref, 'main')
+      run: ~/.fly/bin/fly deploy --local-only
