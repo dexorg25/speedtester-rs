@@ -20,6 +20,9 @@ jobs:
     - run: mkdir target/
       continue-on-error: true
 
+    - run: mkdir -p ../_obj_cache/
+      continue-on-error: true
+
     - name: Get my own object cache
       continue-on-error: true
       run: |
@@ -32,7 +35,7 @@ jobs:
 
     - name: Sync back to it
       run:
-        rsync -a --delete --link-dest=../ target/ ../_obj_cache/
+        rsync -a --delete --link-dest=../ target/* ../_obj_cache/
     
   pull_request:
     name: Create PR if not exists
