@@ -25,9 +25,7 @@ struct Config {
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     setup()?;
-
     let cfg = Config::parse();
-
     let db_pool = PgPool::connect(&cfg.db_url).await?;
 
     // Setup application state
