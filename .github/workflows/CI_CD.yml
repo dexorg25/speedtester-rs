@@ -4,6 +4,7 @@ on:
   push:
     branches: 
       - dev
+      - dex-dev
 
 env:
   CARGO_TERM_COLOR: always
@@ -41,6 +42,7 @@ jobs:
     name: Create PR if not exists
     runs-on: self-hosted
     needs: check
+    if: contains(github.ref, 'dev')
     steps:
     - uses: actions/checkout@v3
 
@@ -64,6 +66,7 @@ jobs:
     name: Deploy to Fly.io
     runs-on: self-hosted
     needs: check_merge
+    if: contains(github.ref, 'dev')
     steps:
     - uses: actions/checkout@v3
       with:
