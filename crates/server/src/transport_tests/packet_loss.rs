@@ -65,7 +65,10 @@ pub async fn new_test(
 
     // Consume the permit, and save the handle to the test's results
     // iperf server returns results only after the test is complete and it has shut down
-    test_permit.begin_test();
+    test_permit.begin_test().map_err(|e| {
+        error!("{e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     // The client must give the server some time to initialize...
 
@@ -92,6 +95,13 @@ pub async fn new_test(
     // This assumes that the server launch passed, and further that the server runs correctly
     // given the commands listed above, there will be issues if any of those fail to hold true
 
+    // TODO: make this not broken
+    // to make this a little more sane for now this joins for the test here
+    test_permit.join_test().await.map_err(|e| {
+        error!("{e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     // when test server has been started reply to request with the port number
     Ok(Json(TestReservation { port_number: port }))
 }
@@ -104,7 +114,8 @@ struct TestPermit {
     port_number: u16,
     port_listener: Option<TcpListener>,
     client_id: Uuid,
-    active_test: Option<JoinHandle<Result<(), color_eyre::Report>>>,
+    active_test: Option<JoinHandle<Result<String, color_eyre::Report>>>,
+    db_pool: Pool<Postgres>,
 }
 
 #[derive(Debug)]
@@ -167,45 +178,52 @@ impl TestPermit {
             port_listener: Some(port_listener),
             client_id: record.id,
             active_test: None,
+            db_pool: state.db_pool.clone(),
         })
     }
 
     /// Fork a test onto a thread, which will drop the current permit when the test server exits
     /// It is the callers responsibility to eventually do something with the join handle, and it's contained results
     ///
-    /// If a test is in process
+    /// If a test is in process... it'll bail with an appropriate error
     fn begin_test(&mut self) -> Result<(), color_eyre::Report> {
+        //TODO: Fix this leak
         if self.active_test.is_some() {
-            return Err(eyre!("Tried to start a test while another test was active"));
+            Err(eyre!("Tried to start a test while another test was active"))
+        } else {
+            // Simply spin up iperf in a blocking thread. Once done, return results to join handle
+            self.port_listener.take();
+            self.active_test
+                .replace(tokio::task::spawn_blocking(move || {
+                    // sync code here
+                    debug!("drop the TCP Listener to release the port");
+                    // Ok((
+                    //     self.client_id,
+                    //     iperf3_cli::test_udp_server(self.port_number),
+                    // ))
+
+                    Ok("this should be a test record but for now it is a useless placeholder. good job.".to_owned())
+                }));
+            Ok(())
         }
-
-        // Simply spin up iperf in a blocking thread. Once done, return results to join handle
-        self.active_test
-            .replace(tokio::task::spawn_blocking(move || {
-                // sync code here
-                debug!("drop the TCP Listener to release the port");
-                self.port_listener.take();
-                // Ok((
-                //     self.client_id,
-                //     iperf3_cli::test_udp_server(self.port_number),
-                // ))
-
-                let _ = self.insert_test_record("This would be a test record".to_owned());
-                Err(eyre!("unimplemented"))
-            }));
-        Ok(())
     }
 
-    async fn insert_test_record(&self, test: String) -> Result<PgQueryResult, Box<dyn Error>> {
-        let test = serde_json::to_value(test)?;
-        sqlx::query!(
-            "INSERT INTO packet_loss_tests (client_id, test) VALUES ($1, $2)",
-            self.client_id,
-            test
-        )
-        .execute(unimplemented!())
-        .await
-        .map_err(std::convert::Into::into)
+    async fn join_test(mut self) -> Result<PgQueryResult, Box<dyn Error>> {
+        if let Some(handle) = self.active_test.take() {
+            let test_string = handle.await??;
+
+            let test = serde_json::to_value(test_string)?;
+            sqlx::query!(
+                "INSERT INTO packet_loss_tests (client_id, test) VALUES ($1, $2)",
+                self.client_id,
+                test
+            )
+            .execute(&self.db_pool)
+            .await
+            .map_err(std::convert::Into::into)
+        } else {
+            Err(eyre!("Attempt to join test when no test is running?").into())
+        }
     }
 }
 

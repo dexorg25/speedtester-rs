@@ -38,6 +38,9 @@ async fn main() -> Result<(), Report> {
 
     //No auth layer used, wireguard secures it
     let app = Router::new()
+        // TODO make this middleware that handles state properly so that I can async it for real and
+        //  maybe let axum handle joining my tests for me? idk someplace needs to get those and deal with them all.
+        //  and it should be some async handler up here.
         .route("/api/v1/newtest", post(packet_loss::new_test))
         .layer(
             ServiceBuilder::new()
