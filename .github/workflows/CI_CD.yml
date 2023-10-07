@@ -23,7 +23,7 @@ jobs:
     - name: Get my own object cache
       continue-on-error: true
       run: |
-        cp -lr ../_obj_cache/* target/
+        cp -lr ../_obj_cache/debug target/debug
           
     - name: Check
       run: cargo build --verbose
@@ -32,7 +32,7 @@ jobs:
 
     - name: Sync back to it
       run:
-        rsync -a --delete --link-dest=../ target/ ../_obj_cache/
+        rsync -a --delete --link-dest=../ target/debug ../_obj_cache
     
   pull_request:
     name: Create PR if not exists
