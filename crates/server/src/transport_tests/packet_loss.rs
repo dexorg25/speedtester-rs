@@ -2,26 +2,22 @@ use api::TestReservation;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
-    routing::post,
-    Extension, Json, Router, Server,
+    Extension, Json,
 };
-use color_eyre::{eyre::eyre, Report};
+use color_eyre::eyre::eyre;
 
-use clap::Parser;
 use sqlx::{postgres::PgQueryResult, query, Pool, Postgres};
 use std::{
     collections::HashSet,
     error::Error,
-    net::SocketAddr,
     sync::{Arc, Mutex},
 };
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
-use tower::ServiceBuilder;
-use tower_http::trace::TraceLayer;
+
 use tracing::{debug, error, info};
-use tracing_subscriber::EnvFilter;
+
 use uuid::Uuid;
 
 // Constants
@@ -58,7 +54,7 @@ pub async fn new_test(
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
     // Acquire a test permit (this also enforces concurrency limit, auth, and any other rules)
-    let test_permit = TestPermit::new(&state, token).await.map_err(|e| match e {
+    let mut test_permit = TestPermit::new(&state, token).await.map_err(|e| match e {
         TestPermitError::Unauthorized => {
             info!("Unauthorized User!");
             StatusCode::UNAUTHORIZED
@@ -69,7 +65,7 @@ pub async fn new_test(
 
     // Consume the permit, and save the handle to the test's results
     // iperf server returns results only after the test is complete and it has shut down
-    let report_future = test_permit.execute_test();
+    test_permit.begin_test();
 
     // The client must give the server some time to initialize...
 
@@ -108,13 +104,14 @@ struct TestPermit {
     port_number: u16,
     port_listener: Option<TcpListener>,
     client_id: Uuid,
+    active_test: Option<JoinHandle<Result<(), color_eyre::Report>>>,
 }
 
 #[derive(Debug)]
 pub enum TestPermitError {
     Unauthorized,
     DbError(Box<dyn Error>),
-    MutexPoisoned,
+    _MutexPoisoned,
     SemaphorePoisoned,
     IoError(Box<dyn Error>),
 }
@@ -169,24 +166,46 @@ impl TestPermit {
             port_number,
             port_listener: Some(port_listener),
             client_id: record.id,
+            active_test: None,
         })
     }
 
     /// Fork a test onto a thread, which will drop the current permit when the test server exits
     /// It is the callers responsibility to eventually do something with the join handle, and it's contained results
-    fn execute_test(mut self) -> JoinHandle<Result<(), color_eyre::Report>> {
+    ///
+    /// If a test is in process
+    fn begin_test(&mut self) -> Result<(), color_eyre::Report> {
+        if self.active_test.is_some() {
+            return Err(eyre!("Tried to start a test while another test was active"));
+        }
+
         // Simply spin up iperf in a blocking thread. Once done, return results to join handle
-        tokio::task::spawn_blocking(move || {
-            // sync code here
-            debug!("drop the TCP Listener to release the port");
-            self.port_listener.take();
-            debug!("Start iperf server");
-            // Ok((
-            //     self.client_id,
-            //     iperf3_cli::test_udp_server(self.port_number),
-            // ))
-            Err(eyre!("unimplemented"))
-        })
+        self.active_test
+            .replace(tokio::task::spawn_blocking(move || {
+                // sync code here
+                debug!("drop the TCP Listener to release the port");
+                self.port_listener.take();
+                // Ok((
+                //     self.client_id,
+                //     iperf3_cli::test_udp_server(self.port_number),
+                // ))
+
+                let _ = self.insert_test_record("This would be a test record".to_owned());
+                Err(eyre!("unimplemented"))
+            }));
+        Ok(())
+    }
+
+    async fn insert_test_record(&self, test: String) -> Result<PgQueryResult, Box<dyn Error>> {
+        let test = serde_json::to_value(test)?;
+        sqlx::query!(
+            "INSERT INTO packet_loss_tests (client_id, test) VALUES ($1, $2)",
+            self.client_id,
+            test
+        )
+        .execute(unimplemented!())
+        .await
+        .map_err(std::convert::Into::into)
     }
 }
 

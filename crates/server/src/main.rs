@@ -1,27 +1,14 @@
-use axum::{
-    body::Body,
-    http::{Request, StatusCode},
-    routing::post,
-    Extension, Json, Router, Server,
-};
-use color_eyre::{eyre::eyre, Report};
+use axum::{routing::post, Extension, Router, Server};
+use color_eyre::Report;
 
 use clap::Parser;
-use sqlx::{postgres::PgQueryResult, query, PgPool, Pool, Postgres};
-use std::{
-    collections::HashSet,
-    error::Error,
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
-use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
-use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
+use sqlx::PgPool;
+use std::net::SocketAddr;
+
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error, info};
+use tracing::info;
 use tracing_subscriber::EnvFilter;
-use uuid::Uuid;
 
 mod transport_tests;
 use transport_tests::packet_loss;
@@ -64,21 +51,6 @@ async fn main() -> Result<(), Report> {
         .await?;
 
     Ok(())
-}
-
-async fn insert_new_test(
-    (id, test): (Uuid, String),
-    db: &Pool<Postgres>,
-) -> Result<PgQueryResult, Box<dyn Error>> {
-    let test = serde_json::to_value(test)?;
-    sqlx::query!(
-        "INSERT INTO packet_loss_tests (client_id, test) VALUES ($1, $2)",
-        id,
-        test
-    )
-    .execute(db)
-    .await
-    .map_err(std::convert::Into::into)
 }
 
 fn setup() -> Result<(), Report> {
