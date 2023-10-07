@@ -9,22 +9,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  pull_request:
-    name: Create PR if not exists
-    runs-on: self-hosted
-    steps:
-    - uses: actions/checkout@v3
-
-    # Create a pull request if not on one
-    - run: gh pr create -B main -f -l CI
-      continue-on-error: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   check:
     name: check
     runs-on: self-hosted
-    needs: pull_request
 
     steps:
     - uses: actions/checkout@v3
@@ -46,16 +34,29 @@ jobs:
       run:
         rsync -a --delete --link-dest=../ target/ ../_obj_cache/
     
-  check_merge:
-    name: yolo merge it (if tests pass)
+  pull_request:
+    name: Create PR if not exists
     runs-on: self-hosted
     needs: check
+    steps:
+    - uses: actions/checkout@v3
+
+    # Create a pull request if not on one
+    - run: gh pr create -B main -f -l CI
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  check_merge:
+    name: yolo merge it
+    runs-on: self-hosted
+    needs: pull_request
     if: contains(github.ref, 'dev')
     steps:
     - uses: actions/checkout@v3
     - run: gh pr merge --merge
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   deploy:
     name: Deploy to Fly.io
     runs-on: self-hosted
