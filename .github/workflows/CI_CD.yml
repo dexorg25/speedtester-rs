@@ -42,7 +42,7 @@ jobs:
     name: Create PR if not exists
     runs-on: self-hosted
     needs: check
-    if: contains(github.ref, 'dev')
+    if: ${{ ! contains(github.ref, 'dex-dev') }}
     steps:
     - uses: actions/checkout@v3
 
@@ -55,7 +55,7 @@ jobs:
     name: yolo merge it
     runs-on: self-hosted
     needs: pull_request
-    if: contains(github.ref, 'dev')
+    if: ${{ ! contains(github.ref, 'dex-dev') }}
     steps:
     - uses: actions/checkout@v3
     - run: gh pr merge --merge
@@ -66,7 +66,7 @@ jobs:
     name: Deploy to Fly.io
     runs-on: self-hosted
     needs: check_merge
-    if: contains(github.ref, 'dev')
+    if: ${{ ! contains(github.ref, 'dex-dev') }}
     steps:
     - uses: actions/checkout@v3
       with:
