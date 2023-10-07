@@ -24,6 +24,7 @@ jobs:
       continue-on-error: true
 
     - name: Get my own object cache
+      continue-on-error: true
       run: |
         cp -lr ../_obj_cache/* target/
           
