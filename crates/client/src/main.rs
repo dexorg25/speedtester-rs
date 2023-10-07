@@ -38,7 +38,7 @@ impl Default for Config {
             interval: 1.,
             client_uuid: Uuid::new_v4(),
         }
-}
+    }
 }
 
 #[derive(Debug)]
@@ -131,7 +131,7 @@ async fn main() -> Result<()> {
 
         debug!("Spawning a test");
         match execute_test(http_client.clone(), &test_url).await {
-            Ok(_) => {
+            Ok(()) => {
                 // Given the test passed, there isn't anything to do on this end. Server now handles reporting
             }
 
@@ -194,7 +194,7 @@ async fn execute_test(
                     ))
                 },
                 |res| match res {
-                    Ok(_) => Ok(()),
+                    Ok(()) => Ok(()),
                     Err(e) => Err(SpeedtesterError::IperfFail(format!("{e}"))),
                 },
             )
